@@ -1,0 +1,41 @@
+# 비밀값 — 절대 커밋 금지
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# 개인 데이터 (실제 고객명 사전 등) — 절대 커밋 금지
+private/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# 데이터베이스·로그
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# 모델 파일 (다운로드 모델, 파인튜닝 결과)
+models/
+finetune/outputs/
+finetune/checkpoints/
+*.safetensors
+*.gguf
+*.pt
+*.onnx
+
+# 에디터·OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
