@@ -1,0 +1,46 @@
+# 게이트웨이 설정
+# - 비밀값(API 키)은 여기 넣지 않는다 → .env
+# - TODO(10/26) 표시 항목은 Ollaya·Laya 공식 문서를 확인한 뒤 채운다. 추측해서 쓰지 않는다.
+
+# 보안 수준: basic(기본) | strict(엄격) | local(완전 로컬, 옵션)
+security_level: basic
+
+gateway:
+  host: 127.0.0.1
+  port: 8000
+
+# 판단 엔진 (/v1/systemone 형식). base_url만 바꾸면 Ollaya(로컬) ↔ Jev(클라우드, 비교용) 전환
+decision:
+  engine: ollaya            # ollaya | jev
+  base_url: ""              # TODO(10/26): Ollaya 기본 주소·포트 확인
+  model: ""                 # TODO(10/26): Laya 다국어 모델 태그 확인
+  timeout_seconds: 10
+
+# 라우팅 정책
+routing:
+  # TODO(10/26): Laya 신뢰도 값의 범위·형식 확인 후 설정. M3 벤치마크에서 튜닝
+  min_confidence: null
+  # 신뢰도가 기준보다 낮을 때 보낼 안전한 경로
+  low_confidence_route: premium   # premium | block
+
+# LLM (저렴한 모델 1종 + 고성능 모델 1종)
+llm:
+  cheap:
+    provider: ""            # TODO(M1): 제공자·모델 결정
+    model: ""
+    price_per_1m_input: null    # 비용 추정용 (USD / 100만 토큰)
+    price_per_1m_output: null
+  premium:
+    provider: ""            # TODO(M1): 제공자·모델 결정
+    model: ""
+    price_per_1m_input: null
+    price_per_1m_output: null
+
+# 민감정보 처리
+masking:
+  # 사용자 사전(고객명·사내 고유명사). 실제 데이터이므로 커밋하지 않는 private/ 아래에 둔다
+  user_dictionary_path: private/user_dictionary.txt
+
+# 요청 로그 (가명화된 텍스트만 저장)
+storage:
+  sqlite_path: data/gateway.db
