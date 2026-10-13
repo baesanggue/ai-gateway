@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시스템 구조</title>
+<style>
+  body { margin: 0; padding: 24px; background: #fff; font-family: "Malgun Gothic", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 12px; color: #1f2937; }
+  .mermaid { display: flex; justify-content: center; }
+</style>
+</head>
+<body>
+<h1>시스템 구조 — 로컬 AI 보안·비용 게이트웨이</h1>
+<pre class="mermaid">
+flowchart TD
+    A["기존 AI 서비스 · 사내 챗봇<br/>(API 주소만 게이트웨이로 변경)"] -->|"OpenAI 호환 요청<br/>/v1/chat/completions"| B
+    subgraph GW["로컬 게이트웨이 (회사 PC·서버 안)"]
+        B["① 민감정보 가명화 (코드)<br/>정규식 · 사용자 사전<br/>김민수 → [고객1]"] --> C["② 판단 (Laya, 로컬)<br/>민감정보 · 기밀 · 원본 필요<br/>난이도 · 의도 · 위험/인젝션 + 신뢰도"]
+        C --> D{"③ 라우팅 정책<br/>보안 수준 + 판단 + 신뢰도"}
+        D -->|"단순 문의"| T["템플릿 응답<br/>(LLM 미사용, 비용 0)"]
+        D -->|"원본 필요 · 위험"| X["차단 + 안내"]
+        T --> R
+        X --> R
+        R["⑤ 응답 복원 (코드)<br/>[고객1] → 김민수"]
+        B -.->|"원본↔가명 대응표<br/>(메모리에만 보관)"| R
+        R -.-> L[("요청 로그 (SQLite)<br/>가명화된 텍스트만")]
+        L -.-> UI["관리·데모 화면 (Streamlit)<br/>비용 카운터 · 판단 과정 · 벤치마크"]
+    end
+    D -->|"가명화된 텍스트만 전송"| E["④ 외부 LLM API<br/>저렴한 모델 / 고성능 모델"]
+    E -->|"가명 토큰이 든 답변"| R
+    R -->|"원래 값으로 복원된 답변"| Z["기존 AI 서비스 · 사내 챗봇<br/>(답변 수신)"]
+    classDef local fill:#ecfdf5,stroke:#059669,color:#064e3b;
+    classDef ext fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
+    classDef block fill:#fef2f2,stroke:#dc2626,color:#7f1d1d;
+    class B,C,D,R,T,L,UI local;
+    class A,E,Z ext;
+    class X block;
+</pre>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js" integrity="sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr" crossorigin="anonymous"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: "base", themeVariables: { fontFamily: "Malgun Gothic", fontSize: "15px" }, flowchart: { curve: "basis" } });</script>
+</body>
+</html>
