@@ -4,39 +4,149 @@
 <meta charset="utf-8">
 <title>시스템 구조</title>
 <style>
-  body { margin: 0; padding: 24px; background: #fff; font-family: "Malgun Gothic", sans-serif; }
-  h1 { font-size: 20px; margin: 0 0 12px; color: #1f2937; }
-  .mermaid { display: flex; justify-content: center; }
+  body { margin: 0; background: #fff; }
+  svg { display: block; font-family: "Malgun Gothic", sans-serif; }
+  .t  { font-size: 17px; font-weight: 700; fill: #0f172a; text-anchor: middle; }
+  .s  { font-size: 14px; fill: #334155; text-anchor: middle; }
+  .x  { font-size: 14px; font-weight: 700; fill: #0f172a; text-anchor: middle; }
+  .p  { font-size: 12px; font-weight: 700; text-anchor: middle; }
+  .lb { font-size: 13px; fill: #475569; }
+  .zone { font-size: 15px; font-weight: 700; }
+  .ln { fill: none; stroke: #475569; stroke-width: 2; }
+  .safe { fill: none; stroke: #2563eb; stroke-width: 3; }
+  .dash { fill: none; stroke: #64748b; stroke-width: 2; stroke-dasharray: 6 5; }
 </style>
 </head>
 <body>
-<h1>시스템 구조 — 로컬 AI 보안·비용 게이트웨이</h1>
-<pre class="mermaid">
-flowchart TD
-    A["기존 AI 서비스 · 사내 챗봇<br/>(API 주소만 게이트웨이로 변경)"] -->|"OpenAI 호환 요청<br/>/v1/chat/completions"| B
-    subgraph GW["로컬 게이트웨이 (회사 PC·서버 안)"]
-        B["① 민감정보 가명화 (코드)<br/>정규식 · 사용자 사전<br/>김민수 → [고객1]"] --> C["② 판단 (Laya, 로컬)<br/>민감정보 · 기밀 · 원본 필요<br/>난이도 · 의도 · 위험/인젝션 + 신뢰도"]
-        C --> D{"③ 라우팅 정책<br/>보안 수준 + 판단 + 신뢰도"}
-        D -->|"단순 문의"| T["템플릿 응답<br/>(LLM 미사용, 비용 0)"]
-        D -->|"원본 필요 · 위험"| X["차단 + 안내"]
-        T --> R
-        X --> R
-        R["⑤ 응답 복원 (코드)<br/>[고객1] → 김민수"]
-        B -.->|"원본↔가명 대응표<br/>(메모리에만 보관)"| R
-        R -.-> L[("요청 로그 (SQLite)<br/>가명화된 텍스트만")]
-        L -.-> UI["관리·데모 화면 (Streamlit)<br/>비용 카운터 · 판단 과정 · 벤치마크"]
-    end
-    D -->|"가명화된 텍스트만 전송"| E["④ 외부 LLM API<br/>저렴한 모델 / 고성능 모델"]
-    E -->|"가명 토큰이 든 답변"| R
-    R -->|"원래 값으로 복원된 답변"| Z["기존 AI 서비스 · 사내 챗봇<br/>(답변 수신)"]
-    classDef local fill:#ecfdf5,stroke:#059669,color:#064e3b;
-    classDef ext fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
-    classDef block fill:#fef2f2,stroke:#dc2626,color:#7f1d1d;
-    class B,C,D,R,T,L,UI local;
-    class A,E,Z ext;
-    class X block;
-</pre>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js" integrity="sha384-WmdflGW9aGfoBdHc4rRyWzYuAjEmDwMdGdiPNacbwfGKxBW/SO6guzuQ76qjnSlr" crossorigin="anonymous"></script>
-<script>mermaid.initialize({ startOnLoad: true, theme: "base", themeVariables: { fontFamily: "Malgun Gothic", fontSize: "15px" }, flowchart: { curve: "basis" } });</script>
+<svg width="1600" height="910" viewBox="0 0 1600 910" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="10" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker>
+  </defs>
+
+  <!-- 제목 -->
+  <text x="20" y="38" font-size="24" font-weight="700" fill="#0f172a">시스템 구조 — 로컬 AI 보안·비용 게이트웨이</text>
+  <text x="1580" y="38" font-size="15" fill="#475569" text-anchor="end">요청은 위로 가고, 답변은 아래로 돌아온다</text>
+
+  <!-- 영역: 회사 내부 / 회사 밖 -->
+  <rect x="20" y="62" width="1180" height="780" rx="16" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="40" y="92" class="zone" fill="#334155">회사 내부 — 원본 데이터가 머무는 곳</text>
+  <rect x="1240" y="62" width="340" height="780" rx="16" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="1260" y="92" class="zone" fill="#1e40af">회사 밖 (인터넷)</text>
+  <line x1="1220" y1="56" x2="1220" y2="848" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="10 7"/>
+  <text x="1220" y="870" font-size="14" font-weight="700" fill="#dc2626" text-anchor="middle">회사 경계</text>
+
+  <!-- 게이트웨이 영역 -->
+  <rect x="260" y="110" width="910" height="700" rx="14" fill="#ffffff" stroke="#10b981" stroke-width="2"/>
+  <text x="280" y="140" class="zone" fill="#047857">로컬 게이트웨이 (설치 스크립트 한 번으로 실행)</text>
+
+  <!-- 기존 AI 서비스 -->
+  <rect x="50" y="170" width="180" height="480" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="140" y="392" class="t">기존 AI 서비스</text>
+  <text x="140" y="418" class="s">사내 챗봇 · 고객센터</text>
+  <text x="140" y="458" class="lb" text-anchor="middle">API 주소만</text>
+  <text x="140" y="478" class="lb" text-anchor="middle">게이트웨이로 변경</text>
+
+  <!-- ① 가명화 -->
+  <rect x="300" y="170" width="220" height="130" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+  <text x="410" y="202" class="t">① 가명화</text>
+  <rect x="382" y="212" width="56" height="22" rx="11" fill="#d1fae5"/><text x="410" y="228" class="p" fill="#065f46">코드</text>
+  <text x="410" y="262" class="s">정규식 · 사용자 사전</text>
+  <text x="410" y="286" class="x">김민수 → [고객1]</text>
+
+  <!-- ② 판단 -->
+  <rect x="580" y="170" width="240" height="130" rx="12" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.8"/>
+  <text x="700" y="202" class="t">② 판단</text>
+  <rect x="645" y="212" width="110" height="22" rx="11" fill="#ede9fe"/><text x="700" y="228" class="p" fill="#5b21b6">AI · 로컬 (Laya)</text>
+  <text x="700" y="262" class="s">민감정보 · 기밀 · 원본 필요</text>
+  <text x="700" y="286" class="s">난이도 · 의도 · 위험 + 신뢰도</text>
+
+  <!-- ③ 라우팅 -->
+  <rect x="880" y="170" width="250" height="130" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+  <text x="1005" y="202" class="t">③ 경로 선택</text>
+  <rect x="965" y="212" width="80" height="22" rx="11" fill="#d1fae5"/><text x="1005" y="228" class="p" fill="#065f46">코드 (정책)</text>
+  <text x="1005" y="262" class="s">보안 수준 + 판단 + 신뢰도</text>
+  <text x="1005" y="286" class="s">신뢰도 낮으면 안전한 쪽으로</text>
+
+  <!-- 템플릿 / 차단 -->
+  <rect x="880" y="360" width="120" height="90" rx="10" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+  <text x="940" y="388" class="x">템플릿 응답</text>
+  <text x="940" y="412" class="lb" text-anchor="middle">LLM 미사용</text>
+  <text x="940" y="434" class="lb" text-anchor="middle">비용 0</text>
+  <rect x="1010" y="360" width="120" height="90" rx="10" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="1070" y="388" class="x">차단 + 안내</text>
+  <text x="1070" y="412" class="lb" text-anchor="middle">원본 값 필요</text>
+  <text x="1070" y="434" class="lb" text-anchor="middle">위험 · 인젝션</text>
+
+  <!-- ⑤ 복원 -->
+  <rect x="300" y="520" width="520" height="130" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+  <text x="560" y="552" class="t">⑤ 복원</text>
+  <rect x="532" y="562" width="56" height="22" rx="11" fill="#d1fae5"/><text x="560" y="578" class="p" fill="#065f46">코드</text>
+  <text x="560" y="610" class="s">답변 속 가명 토큰을 원래 값으로 되돌림</text>
+  <text x="560" y="634" class="x">[고객1]님 → 김민수님</text>
+
+  <!-- 로그 / 화면 -->
+  <rect x="300" y="700" width="300" height="76" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="450" y="730" class="x">요청 로그 (SQLite)</text>
+  <text x="450" y="756" class="lb" text-anchor="middle">가명화된 텍스트 · 판단 · 경로 · 비용만</text>
+  <rect x="660" y="700" width="330" height="76" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="825" y="730" class="x">관리·데모 화면 (Streamlit)</text>
+  <text x="825" y="756" class="lb" text-anchor="middle">비용 카운터 · 판단 과정 · 벤치마크</text>
+
+  <!-- ④ 외부 LLM -->
+  <rect x="1270" y="170" width="280" height="480" rx="12" fill="#ffffff" stroke="#3b82f6" stroke-width="1.8"/>
+  <text x="1410" y="372" class="t">④ 외부 LLM API</text>
+  <rect x="1373" y="382" width="74" height="22" rx="11" fill="#dbeafe"/><text x="1410" y="398" class="p" fill="#1e40af">AI · 외부</text>
+  <text x="1410" y="432" class="s">저렴한 모델 / 고성능 모델</text>
+  <text x="1410" y="456" class="s">가명화된 텍스트로 답변 생성</text>
+  <text x="1410" y="492" font-size="13" font-weight="700" fill="#dc2626" text-anchor="middle">원본 값은 볼 수 없음</text>
+
+  <!-- 요청 흐름 (위) -->
+  <path class="ln" d="M230 235 H300" marker-end="url(#a)"/>
+  <text x="265" y="226" class="lb" text-anchor="middle">요청</text>
+  <path class="ln" d="M520 235 H580" marker-end="url(#a)"/>
+  <path class="ln" d="M820 235 H880" marker-end="url(#a)"/>
+  <path class="safe" d="M1130 235 H1270" marker-end="url(#b)"/>
+  <rect x="1136" y="206" width="128" height="22" rx="4" fill="#ffffff"/>
+  <rect x="1136" y="248" width="128" height="20" rx="4" fill="#ffffff"/>
+  <text x="1200" y="222" font-size="14" font-weight="700" fill="#2563eb" text-anchor="middle">가명화된 텍스트만</text>
+  <text x="1200" y="262" class="lb" text-anchor="middle">난이도에 맞는 모델로</text>
+
+  <!-- 경로 분기 -->
+  <path class="ln" d="M1005 300 V328 H940 V360" marker-end="url(#a)"/>
+  <path class="ln" d="M1005 328 H1070 V360" marker-end="url(#a)"/>
+
+  <!-- 답변 흐름 (아래) -->
+  <path class="ln" d="M940 450 V575"/>
+  <path class="ln" d="M1070 450 V575 H820" marker-end="url(#a)"/>
+  <text x="880" y="566" class="lb" text-anchor="middle">LLM 없이 응답</text>
+  <path class="safe" d="M1270 615 H820" marker-end="url(#b)"/>
+  <text x="1110" y="604" font-size="14" font-weight="700" fill="#2563eb" text-anchor="middle">가명 토큰이 든 답변</text>
+  <path class="ln" d="M300 585 H230" marker-end="url(#a)"/>
+  <text x="265" y="576" class="lb" text-anchor="middle">답변</text>
+
+  <!-- 대응표 / 기록 -->
+  <path class="dash" d="M410 300 V520" marker-end="url(#g)"/>
+  <text x="426" y="398" class="lb" font-weight="700">원본 ↔ 가명 대응표</text>
+  <text x="426" y="420" class="lb">요청 처리 중 메모리에만 보관</text>
+  <text x="426" y="442" class="lb">(DB·로그에 저장하지 않음)</text>
+  <path class="dash" d="M450 650 V700" marker-end="url(#g)"/>
+  <path class="ln" d="M600 738 H660" marker-end="url(#a)"/>
+
+  <!-- 범례 -->
+  <g transform="translate(20,893)">
+    <rect x="0" y="-15" width="56" height="22" rx="11" fill="#d1fae5"/><text x="28" y="1" class="p" fill="#065f46">코드</text>
+    <text x="66" y="1" class="lb">치환 · 복원 · 정책을 정확하게</text>
+    <rect x="280" y="-15" width="110" height="22" rx="11" fill="#ede9fe"/><text x="335" y="1" class="p" fill="#5b21b6">AI · 로컬 (Laya)</text>
+    <text x="400" y="1" class="lb">판단만 (글을 쓰지 않음)</text>
+    <rect x="590" y="-15" width="74" height="22" rx="11" fill="#dbeafe"/><text x="627" y="1" class="p" fill="#1e40af">AI · 외부</text>
+    <text x="674" y="1" class="lb">답변 생성</text>
+    <line x1="790" y1="-4" x2="840" y2="-4" stroke="#2563eb" stroke-width="3"/>
+    <text x="850" y="1" class="lb">회사 경계를 넘는 데이터 (가명화된 것뿐)</text>
+    <line x1="1140" y1="-4" x2="1190" y2="-4" stroke="#64748b" stroke-width="2" stroke-dasharray="6 5"/>
+    <text x="1200" y="1" class="lb">내부 참조 · 기록</text>
+  </g>
+</svg>
 </body>
 </html>
