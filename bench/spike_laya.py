@@ -166,10 +166,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pc", default="(기록 안 함)", help="실행 PC 사양")
     ap.add_argument("--lang", choices=["ko", "en"], default="ko", help="질문(instructions) 언어. 문장은 항상 한국어")
+    ap.add_argument("--model", help="config.yaml의 decision.model 대신 쓸 모델 (모델 비교용)")
+    ap.add_argument("--timeout", type=float, help="요청당 제한 시간(초). 기본은 config.yaml 값")
+    ap.add_argument("--out-dir", type=Path, default=RESULTS, help="결과 저장 폴더")
     args = ap.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))["decision"]
-    base, model, timeout = cfg["base_url"].rstrip("/"), cfg["model"], cfg["timeout_seconds"]
+    base = cfg["base_url"].rstrip("/")
+    model = args.model or cfg["model"]
+    timeout = args.timeout or cfg["timeout_seconds"]
     questions = build_questions(args.lang)
 
     with TESTSET.open(encoding="utf-8-sig", newline="") as f:
@@ -195,8 +200,15 @@ def main():
                 "confidence": conf, "raw": raw,
             })
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    stem = RESULTS / f"{date.today().isoformat()}-laya-spike-{args.lang}"
+    # 실제로 어떤 장치·정밀도로 돌았는지 기록 (GPU로 돌았다면 CPU 비교가 아니다)
+    with urllib.request.urlopen(f"{base}/api/ps", timeout=10) as r:
+        loaded = next((m for m in json.load(r)["models"] if m["name"] == res["model"]), {})
+    device = f"{loaded.get('details', {}).get('quantization_level', '?')}, VRAM {loaded.get('size_vram', '?')} bytes"
+
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    default_name = args.model is None and args.out_dir == RESULTS
+    name = "laya-spike" if default_name else "spike-" + model.replace(":", "_").replace("/", "_")
+    stem = args.out_dir / f"{date.today().isoformat()}-{name}-{args.lang}"
     with open(f"{stem}.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(records[0].keys()), lineterminator="\n")
         w.writeheader()
@@ -204,8 +216,9 @@ def main():
 
     # 요약
     lines = [
-        f"# Laya 한국어 간이 테스트 — 질문 언어: {args.lang} ({date.today().isoformat()})", "",
-        f"- 모델: `{model}` · 서버: `{base}` · 문장 20개 × 질문 {len(questions)}개 (요청 1건에 모두 포함)",
+        f"# 판단 모델 한국어 간이 테스트 — `{model}` · 질문 언어: {args.lang} ({date.today().isoformat()})", "",
+        f"- 모델: `{model}` (답한 모델: `{res['model']}`, 적재 상태: {device}) · 서버: `{base}`",
+        f"- 문장 20개 × 질문 {len(questions)}개 (요청 1건에 모두 포함)",
         f"- 실행 PC: {args.pc}",
         "- 질문 문장과 정답 규칙: `bench/spike_laya.py`",
         "- **20문장짜리 간이 테스트다.** 정답 '예'가 1~8개뿐인 판단이 있어 수치의 흔들림이 크다.",
@@ -248,7 +261,13 @@ def main():
         f"- 모델 계산(eval): 평균 {statistics.mean(ev):.0f} ms · p95 {p95(ev):.0f} ms",
         f"- 왕복(HTTP 포함): 평균 {statistics.mean(wall):.0f} ms · p95 {p95(wall):.0f} ms",
     ]
-    Path(f"{stem}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    Path(f"{stem}.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    Path(f"{stem}.json").write_text(json.dumps({
+        "model": model, "answered_by": res["model"], "device": device, "lang": args.lang, "pc": args.pc,
+        "questions": len(questions), "requests": len(latencies),
+        "eval_ms_mean": round(statistics.mean(ev)), "eval_ms_p95": round(p95(ev)),
+        "wall_ms_mean": round(statistics.mean(wall)), "wall_ms_p95": round(p95(wall)),
+    }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
     print("\n".join(lines))
 
 
