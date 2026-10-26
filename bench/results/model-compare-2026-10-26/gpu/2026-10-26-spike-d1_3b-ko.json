@@ -1,0 +1,13 @@
+{
+ "model": "d1:3b",
+ "answered_by": "d1:3b",
+ "device": "Q8_0, VRAM 2874792828 bytes",
+ "lang": "ko",
+ "pc": "AMD Ryzen 7 7800X3D · RAM 32GB · RTX 4080 SUPER 16GB · Windows 11 · Ollaya 0.18.0 CPU 빌드 (OLLAYA_DEVICE=auto → GGUF는 Vulkan)",
+ "questions": 11,
+ "requests": 20,
+ "eval_ms_mean": 783,
+ "eval_ms_p95": 721,
+ "wall_ms_mean": 798,
+ "wall_ms_p95": 740
+}

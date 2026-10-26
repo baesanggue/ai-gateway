@@ -1,0 +1,13 @@
+{
+ "model": "gliclass:v4-edge",
+ "answered_by": "gliclass:v4-edge",
+ "device": "F32, VRAM 0 bytes",
+ "lang": "ko",
+ "pc": "AMD Ryzen 7 7800X3D (8코어) · RAM 32GB · Windows 11 · Ollaya 0.18.0 (OLLAYA_DEVICE=cpu)",
+ "questions": 11,
+ "requests": 20,
+ "eval_ms_mean": 2859,
+ "eval_ms_p95": 3449,
+ "wall_ms_mean": 2867,
+ "wall_ms_p95": 3451
+}

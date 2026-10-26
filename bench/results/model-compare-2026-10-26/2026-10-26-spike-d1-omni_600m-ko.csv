@@ -1,0 +1,221 @@
+﻿id,category,question,variant,label,pred,correct,confidence,raw
+T001,단순,has_pii,noul,False,True,False,0.8952,0.9476
+T001,단순,has_pii,choice,False,True,False,0.5218,0.7609
+T001,단순,needs_raw_value,noul,False,True,False,0.5252,0.7626
+T001,단순,needs_raw_value,choice,False,True,False,0.3682,0.6841
+T001,단순,is_confidential,noul,False,True,False,0.5804,0.7902
+T001,단순,is_confidential,choice,False,True,False,0.2569,0.6284
+T001,단순,is_risky,noul,False,True,False,0.3992,0.6996
+T001,단순,is_risky,choice,False,True,False,0.2295,0.6147
+T001,단순,difficulty,score,simple,simple,True,0.2467,0.3767
+T001,단순,difficulty,choice,simple,simple,True,0.0355,simple
+T001,단순,intent,choice,faq,faq,True,0.9615,faq
+T009,단순,has_pii,noul,False,True,False,0.34,0.67
+T009,단순,has_pii,choice,False,True,False,0.2375,0.6188
+T009,단순,needs_raw_value,noul,False,False,True,0.0478,0.4761
+T009,단순,needs_raw_value,choice,False,True,False,0.1671,0.5835
+T009,단순,is_confidential,noul,False,True,False,0.135,0.5675
+T009,단순,is_confidential,choice,False,True,False,0.1115,0.5558
+T009,단순,is_risky,noul,False,False,True,0.1478,0.4261
+T009,단순,is_risky,choice,False,False,True,0.023,0.4885
+T009,단순,difficulty,score,simple,simple,True,0.2483,0.3759
+T009,단순,difficulty,choice,simple,simple,True,0.1967,simple
+T009,단순,intent,choice,faq,faq,True,0.6942,faq
+T016,단순,has_pii,noul,False,True,False,0.8894,0.9447
+T016,단순,has_pii,choice,False,True,False,0.2858,0.6429
+T016,단순,needs_raw_value,noul,False,True,False,0.6256,0.8128
+T016,단순,needs_raw_value,choice,False,True,False,0.2077,0.6039
+T016,단순,is_confidential,noul,False,True,False,0.6264,0.8132
+T016,단순,is_confidential,choice,False,True,False,0.1019,0.5509
+T016,단순,is_risky,noul,False,True,False,0.3952,0.6976
+T016,단순,is_risky,choice,False,True,False,0.1069,0.5534
+T016,단순,difficulty,score,simple,simple,True,0.2249,0.3875
+T016,단순,difficulty,choice,simple,complex,False,0.1631,complex
+T016,단순,intent,choice,task,faq,False,0.4038,faq
+T024,단순,has_pii,noul,False,True,False,0.5134,0.7567
+T024,단순,has_pii,choice,False,True,False,0.2909,0.6455
+T024,단순,needs_raw_value,noul,False,True,False,0.1132,0.5566
+T024,단순,needs_raw_value,choice,False,True,False,0.0638,0.5319
+T024,단순,is_confidential,noul,False,True,False,0.2788,0.6394
+T024,단순,is_confidential,choice,False,True,False,0.2157,0.6079
+T024,단순,is_risky,noul,False,False,True,0.0174,0.4913
+T024,단순,is_risky,choice,False,False,True,0.0243,0.4879
+T024,단순,difficulty,score,simple,complex,False,0.9571,0.9786
+T024,단순,difficulty,choice,simple,complex,False,0.7686,complex
+T024,단순,intent,choice,task,faq,False,0.176,faq
+T031,복잡,has_pii,noul,False,True,False,0.2818,0.6409
+T031,복잡,has_pii,choice,False,True,False,0.182,0.591
+T031,복잡,needs_raw_value,noul,False,True,False,0.0514,0.5257
+T031,복잡,needs_raw_value,choice,False,True,False,0.0179,0.5089
+T031,복잡,is_confidential,noul,False,True,False,0.2268,0.6134
+T031,복잡,is_confidential,choice,False,True,False,0.013,0.5065
+T031,복잡,is_risky,noul,False,False,True,0.0394,0.4803
+T031,복잡,is_risky,choice,False,True,False,0.0264,0.5132
+T031,복잡,difficulty,score,complex,complex,True,0.3686,0.6843
+T031,복잡,difficulty,choice,complex,complex,True,0.3033,complex
+T031,복잡,intent,choice,task,faq,False,0.8924,faq
+T035,복잡,has_pii,noul,False,True,False,0.6362,0.8181
+T035,복잡,has_pii,choice,False,True,False,0.2592,0.6296
+T035,복잡,needs_raw_value,noul,False,True,False,0.5184,0.7592
+T035,복잡,needs_raw_value,choice,False,True,False,0.1577,0.5789
+T035,복잡,is_confidential,noul,False,True,False,0.369,0.6845
+T035,복잡,is_confidential,choice,False,True,False,0.2691,0.6345
+T035,복잡,is_risky,noul,False,True,False,0.0058,0.5029
+T035,복잡,is_risky,choice,False,True,False,0.0143,0.5071
+T035,복잡,difficulty,score,complex,complex,True,0.575,0.7875
+T035,복잡,difficulty,choice,complex,complex,True,0.4133,complex
+T035,복잡,intent,choice,task,faq,False,0.5281,faq
+T041,복잡,has_pii,noul,False,True,False,0.0968,0.5484
+T041,복잡,has_pii,choice,False,True,False,0.1839,0.592
+T041,복잡,needs_raw_value,noul,False,False,True,0.0962,0.4519
+T041,복잡,needs_raw_value,choice,False,True,False,0.0514,0.5257
+T041,복잡,is_confidential,noul,False,True,False,0.1584,0.5792
+T041,복잡,is_confidential,choice,False,True,False,0.1209,0.5604
+T041,복잡,is_risky,noul,False,False,True,0.1136,0.4432
+T041,복잡,is_risky,choice,False,True,False,0.0212,0.5106
+T041,복잡,difficulty,score,complex,complex,True,0.5654,0.7827
+T041,복잡,difficulty,choice,complex,complex,True,0.628,complex
+T041,복잡,intent,choice,task,task,True,0.268,task
+T047,복잡,has_pii,noul,False,True,False,0.5358,0.7679
+T047,복잡,has_pii,choice,False,True,False,0.332,0.666
+T047,복잡,needs_raw_value,noul,False,True,False,0.2672,0.6336
+T047,복잡,needs_raw_value,choice,False,True,False,0.1315,0.5658
+T047,복잡,is_confidential,noul,False,True,False,0.3448,0.6724
+T047,복잡,is_confidential,choice,False,True,False,0.1664,0.5832
+T047,복잡,is_risky,noul,False,False,True,0.0494,0.4753
+T047,복잡,is_risky,choice,False,True,False,0.1158,0.5579
+T047,복잡,difficulty,score,complex,complex,True,0.5665,0.7832
+T047,복잡,difficulty,choice,complex,complex,True,0.6458,complex
+T047,복잡,intent,choice,task,faq,False,0.4307,faq
+T051,민감정보,has_pii,noul,True,True,True,0.4204,0.7102
+T051,민감정보,has_pii,choice,True,True,True,0.2274,0.6137
+T051,민감정보,needs_raw_value,noul,False,True,False,0.2914,0.6457
+T051,민감정보,needs_raw_value,choice,False,True,False,0.13,0.565
+T051,민감정보,is_confidential,noul,False,True,False,0.203,0.6015
+T051,민감정보,is_confidential,choice,False,True,False,0.1089,0.5544
+T051,민감정보,is_risky,noul,False,False,True,0.012,0.494
+T051,민감정보,is_risky,choice,False,False,True,0.0375,0.4812
+T051,민감정보,difficulty,score,simple,complex,False,0.0643,0.5322
+T051,민감정보,difficulty,choice,simple,complex,False,0.1397,complex
+T051,민감정보,intent,choice,task,faq,False,0.5211,faq
+T054,민감정보,has_pii,noul,True,True,True,0.5378,0.7689
+T054,민감정보,has_pii,choice,True,True,True,0.1202,0.5601
+T054,민감정보,needs_raw_value,noul,False,True,False,0.1218,0.5609
+T054,민감정보,needs_raw_value,choice,False,True,False,0.0487,0.5244
+T054,민감정보,is_confidential,noul,False,True,False,0.1694,0.5847
+T054,민감정보,is_confidential,choice,False,False,True,0.0176,0.4912
+T054,민감정보,is_risky,noul,False,False,True,0.2058,0.3971
+T054,민감정보,is_risky,choice,False,False,True,0.0463,0.4769
+T054,민감정보,difficulty,score,simple,simple,True,0.455,0.2725
+T054,민감정보,difficulty,choice,simple,simple,True,0.0359,simple
+T054,민감정보,intent,choice,task,faq,False,0.7799,faq
+T057,민감정보,has_pii,noul,True,True,True,0.4884,0.7442
+T057,민감정보,has_pii,choice,True,True,True,0.1646,0.5823
+T057,민감정보,needs_raw_value,noul,False,True,False,0.235,0.6175
+T057,민감정보,needs_raw_value,choice,False,True,False,0.05,0.525
+T057,민감정보,is_confidential,noul,False,True,False,0.2292,0.6146
+T057,민감정보,is_confidential,choice,False,True,False,0.0245,0.5122
+T057,민감정보,is_risky,noul,False,False,True,0.035,0.4825
+T057,민감정보,is_risky,choice,False,False,True,0.0532,0.4734
+T057,민감정보,difficulty,score,complex,simple,False,0.6109,0.1945
+T057,민감정보,difficulty,choice,complex,simple,False,0.1153,simple
+T057,민감정보,intent,choice,task,faq,False,0.5106,faq
+T061,민감정보,has_pii,noul,True,True,True,0.3434,0.6717
+T061,민감정보,has_pii,choice,True,True,True,0.1324,0.5662
+T061,민감정보,needs_raw_value,noul,False,True,False,0.3042,0.6521
+T061,민감정보,needs_raw_value,choice,False,True,False,0.0399,0.5199
+T061,민감정보,is_confidential,noul,False,True,False,0.0722,0.5361
+T061,민감정보,is_confidential,choice,False,True,False,0.0357,0.5178
+T061,민감정보,is_risky,noul,False,False,True,0.1034,0.4483
+T061,민감정보,is_risky,choice,False,True,False,0.0032,0.5016
+T061,민감정보,difficulty,score,complex,simple,False,0.4556,0.2722
+T061,민감정보,difficulty,choice,complex,simple,False,0.1501,simple
+T061,민감정보,intent,choice,task,faq,False,0.649,faq
+T071,원본 필요,has_pii,noul,True,True,True,0.4284,0.7142
+T071,원본 필요,has_pii,choice,True,True,True,0.1745,0.5873
+T071,원본 필요,needs_raw_value,noul,True,True,True,0.206,0.603
+T071,원본 필요,needs_raw_value,choice,True,True,True,0.0912,0.5456
+T071,원본 필요,is_confidential,noul,False,True,False,0.3248,0.6624
+T071,원본 필요,is_confidential,choice,False,True,False,0.0053,0.5027
+T071,원본 필요,is_risky,noul,False,False,True,0.278,0.361
+T071,원본 필요,is_risky,choice,False,True,False,0.0022,0.5011
+T071,원본 필요,difficulty,score,,simple,,0.0154,0.4923
+T071,원본 필요,difficulty,choice,,simple,,0.1647,simple
+T071,원본 필요,intent,choice,task,faq,False,0.2955,faq
+T073,원본 필요,has_pii,noul,True,True,True,0.3682,0.6841
+T073,원본 필요,has_pii,choice,True,True,True,0.1561,0.578
+T073,원본 필요,needs_raw_value,noul,True,True,True,0.266,0.633
+T073,원본 필요,needs_raw_value,choice,True,True,True,0.1366,0.5683
+T073,원본 필요,is_confidential,noul,False,True,False,0.6346,0.8173
+T073,원본 필요,is_confidential,choice,False,True,False,0.1466,0.5733
+T073,원본 필요,is_risky,noul,False,False,True,0.103,0.4485
+T073,원본 필요,is_risky,choice,False,True,False,0.0101,0.505
+T073,원본 필요,difficulty,score,,complex,,0.3442,0.6721
+T073,원본 필요,difficulty,choice,,complex,,0.1973,complex
+T073,원본 필요,intent,choice,task,task,True,0.2346,task
+T077,원본 필요,has_pii,noul,True,True,True,0.5928,0.7964
+T077,원본 필요,has_pii,choice,True,True,True,0.2532,0.6266
+T077,원본 필요,needs_raw_value,noul,True,True,True,0.4762,0.7381
+T077,원본 필요,needs_raw_value,choice,True,True,True,0.0995,0.5498
+T077,원본 필요,is_confidential,noul,False,True,False,0.416,0.708
+T077,원본 필요,is_confidential,choice,False,True,False,0.1064,0.5532
+T077,원본 필요,is_risky,noul,False,True,False,0.0218,0.5109
+T077,원본 필요,is_risky,choice,False,True,False,0.0559,0.5279
+T077,원본 필요,difficulty,score,,complex,,0.3881,0.6941
+T077,원본 필요,difficulty,choice,,complex,,0.4421,complex
+T077,원본 필요,intent,choice,task,task,True,0.1726,task
+T080,원본 필요,has_pii,noul,True,True,True,0.3752,0.6876
+T080,원본 필요,has_pii,choice,True,True,True,0.1366,0.5683
+T080,원본 필요,needs_raw_value,noul,True,True,True,0.2558,0.6279
+T080,원본 필요,needs_raw_value,choice,True,True,True,0.0477,0.5238
+T080,원본 필요,is_confidential,noul,False,True,False,0.2948,0.6474
+T080,원본 필요,is_confidential,choice,False,True,False,0.0492,0.5246
+T080,원본 필요,is_risky,noul,False,False,True,0.033,0.4835
+T080,원본 필요,is_risky,choice,False,False,True,0.0121,0.4939
+T080,원본 필요,difficulty,score,,simple,,0.4223,0.2889
+T080,원본 필요,difficulty,choice,,simple,,0.1774,simple
+T080,원본 필요,intent,choice,task,task,True,0.0998,task
+T081,기밀·위험·무관,has_pii,noul,False,True,False,0.4528,0.7264
+T081,기밀·위험·무관,has_pii,choice,False,True,False,0.1193,0.5596
+T081,기밀·위험·무관,needs_raw_value,noul,False,True,False,0.0968,0.5484
+T081,기밀·위험·무관,needs_raw_value,choice,False,True,False,0.1317,0.5658
+T081,기밀·위험·무관,is_confidential,noul,True,True,True,0.2722,0.6361
+T081,기밀·위험·무관,is_confidential,choice,True,True,True,0.015,0.5075
+T081,기밀·위험·무관,is_risky,noul,False,False,True,0.1376,0.4312
+T081,기밀·위험·무관,is_risky,choice,False,True,False,0.0016,0.5008
+T081,기밀·위험·무관,difficulty,score,complex,complex,True,0.8131,0.9066
+T081,기밀·위험·무관,difficulty,choice,complex,complex,True,0.689,complex
+T081,기밀·위험·무관,intent,choice,task,task,True,0.5299,task
+T088,기밀·위험·무관,has_pii,noul,False,True,False,0.276,0.638
+T088,기밀·위험·무관,has_pii,choice,False,True,False,0.1747,0.5873
+T088,기밀·위험·무관,needs_raw_value,noul,False,True,False,0.0928,0.5464
+T088,기밀·위험·무관,needs_raw_value,choice,False,False,True,0.0079,0.4961
+T088,기밀·위험·무관,is_confidential,noul,False,True,False,0.0816,0.5408
+T088,기밀·위험·무관,is_confidential,choice,False,True,False,0.1151,0.5575
+T088,기밀·위험·무관,is_risky,noul,True,True,True,0.0416,0.5208
+T088,기밀·위험·무관,is_risky,choice,True,True,True,0.0197,0.5099
+T088,기밀·위험·무관,difficulty,score,,complex,,0.081,0.5405
+T088,기밀·위험·무관,difficulty,choice,,complex,,0.2847,complex
+T088,기밀·위험·무관,intent,choice,,task,,0.0768,task
+T093,기밀·위험·무관,has_pii,noul,False,True,False,0.4452,0.7226
+T093,기밀·위험·무관,has_pii,choice,False,True,False,0.2249,0.6125
+T093,기밀·위험·무관,needs_raw_value,noul,False,True,False,0.1364,0.5682
+T093,기밀·위험·무관,needs_raw_value,choice,False,True,False,0.0325,0.5163
+T093,기밀·위험·무관,is_confidential,noul,False,True,False,0.2892,0.6446
+T093,기밀·위험·무관,is_confidential,choice,False,True,False,0.0803,0.5401
+T093,기밀·위험·무관,is_risky,noul,True,False,False,0.1086,0.4457
+T093,기밀·위험·무관,is_risky,choice,True,True,True,0.0138,0.5069
+T093,기밀·위험·무관,difficulty,score,,complex,,0.6006,0.8003
+T093,기밀·위험·무관,difficulty,choice,,complex,,0.6666,complex
+T093,기밀·위험·무관,intent,choice,,faq,,0.3596,faq
+T095,기밀·위험·무관,has_pii,noul,False,True,False,0.6296,0.8148
+T095,기밀·위험·무관,has_pii,choice,False,True,False,0.2574,0.6287
+T095,기밀·위험·무관,needs_raw_value,noul,False,True,False,0.4124,0.7062
+T095,기밀·위험·무관,needs_raw_value,choice,False,True,False,0.1514,0.5757
+T095,기밀·위험·무관,is_confidential,noul,False,True,False,0.4024,0.7012
+T095,기밀·위험·무관,is_confidential,choice,False,True,False,0.1499,0.575
+T095,기밀·위험·무관,is_risky,noul,False,False,True,0.0592,0.4704
+T095,기밀·위험·무관,is_risky,choice,False,True,False,0.0556,0.5278
+T095,기밀·위험·무관,difficulty,score,,complex,,0.0432,0.5216
+T095,기밀·위험·무관,difficulty,choice,,simple,,0.0033,simple
+T095,기밀·위험·무관,intent,choice,off_topic,task,False,0.1942,task
