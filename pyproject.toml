@@ -5,7 +5,9 @@ description = "로컬 판단 기반 AI 보안·비용 게이트웨이"
 readme = "README.md"
 requires-python = ">=3.11"
 # 의존성은 기능을 구현할 때 `uv add`로 추가한다 (M1부터)
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0.3",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
