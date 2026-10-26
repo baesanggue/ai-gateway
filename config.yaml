@@ -1,6 +1,6 @@
 # 게이트웨이 설정
 # - 비밀값(API 키)은 여기 넣지 않는다 → .env
-# - TODO(10/26) 표시 항목은 Ollaya·Laya 공식 문서를 확인한 뒤 채운다. 추측해서 쓰지 않는다.
+# - 판단 엔진 값의 근거는 docs/ollaya-notes.md (Ollaya v0.18.0 공식 문서 기준)
 
 # 보안 수준: basic(기본) | strict(엄격) | local(완전 로컬, 옵션)
 security_level: basic
@@ -12,13 +12,15 @@ gateway:
 # 판단 엔진 (/v1/systemone 형식). base_url만 바꾸면 Ollaya(로컬) ↔ Jev(클라우드, 비교용) 전환
 decision:
   engine: ollaya            # ollaya | jev
-  base_url: ""              # TODO(10/26): Ollaya 기본 주소·포트 확인
-  model: ""                 # TODO(10/26): Laya 다국어 모델 태그 확인
+  base_url: http://127.0.0.1:11435   # Ollaya 기본 주소 (OLLAYA_HOST)
+  # 라우터(laya) 대신 다국어 체크포인트를 직접 지정: 답하는 모델이 고정돼야 신뢰도 기준값이 의미를 가진다
+  model: laya:multilingual
   timeout_seconds: 10
 
 # 라우팅 정책
 routing:
-  # TODO(10/26): Laya 신뢰도 값의 범위·형식 확인 후 설정. M3 벤치마크에서 튜닝
+  # 신뢰도 범위는 0~1 ((K·p_max − 1)/(K − 1)). noul은 코드에서 |2p − 1|로 계산.
+  # laya:multilingual은 보정 없이 배포되어 과신하므로, 값은 M3 벤치마크로 정한다. 그 전까지 비워 둔다
   min_confidence: null
   # 신뢰도가 기준보다 낮을 때 보낼 안전한 경로
   low_confidence_route: premium   # premium | block
