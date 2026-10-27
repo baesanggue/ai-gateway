@@ -1,0 +1,14 @@
+{
+ "backend": "decisions",
+ "model": "gpt-6-luna",
+ "answered_by": "gpt-6-luna",
+ "questions": "cloud",
+ "n_questions": 5,
+ "rows": 100,
+ "masked_input": true,
+ "pc": "AMD Ryzen 7 7800X3D (8코어) · RAM 32GB · Windows 11 · Ollaya 0.18.0 (OLLAYA_DEVICE=cpu)",
+ "latency_basis": "왕복 (네트워크 포함)",
+ "latency_ms_mean": 355,
+ "latency_ms_p95": 460,
+ "input_tokens_total": 82514
+}
