@@ -1,0 +1,14 @@
+{
+ "backend": "ollaya",
+ "model": "gliclass:v4-edge",
+ "answered_by": "gliclass:v4-edge",
+ "questions": "security",
+ "n_questions": 8,
+ "rows": 100,
+ "masked_input": false,
+ "pc": "AMD Ryzen 7 7800X3D (8코어) · RAM 32GB · Windows 11 · Ollaya 0.18.0 (OLLAYA_DEVICE=cpu)",
+ "latency_basis": "eval_duration (모델 계산)",
+ "latency_ms_mean": 1414,
+ "latency_ms_p95": 1824,
+ "input_tokens_total": 0
+}
