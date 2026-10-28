@@ -44,11 +44,15 @@ DIFFICULTY_LEVELS = {
     "complex": "복잡: 여러 단계의 분석·계획·비교나 긴 문서 작성이 필요하다",
 }
 INTENT = "이 요청은 어떤 종류인가?"
+# 업종과 무관한 의도 선택지 (10/28 범용화, #27). 실제 FAQ 목록은 회사마다 설정으로 등록한다
 INTENTS = {
-    "faq": "배송 조회·반품·교환·주문 취소·결제 수단·고객센터 운영시간 같은 자주 묻는 질문",
-    "task": "글 작성·요약·분석·번역 등 업무 처리 요청",
+    "faq": "운영 시간, 예약·접수·신청 방법, 서류·준비물, 배송·반품·결제 절차처럼 회사가 정해 둔 답이 있는 자주 묻는 질문",
+    "service": "상품이나 서비스의 사용법·관리법·추천·자격 같은 이용 문의",
+    "task": "글 작성·요약·분석·번역·계획처럼 업무를 처리해 달라는 요청",
     "off_topic": "회사 업무와 관계없는 개인적인 질문이나 잡담",
 }
+# 라우팅에서는 이용 문의와 업무 요청을 같은 경로(난이도에 따라 LLM)로 보낸다
+INTENT_GROUP = {"faq": "faq", "service": "work", "task": "work", "off_topic": "off_topic"}
 
 
 # 같은 질문의 영어판: 문장(state)은 한국어 그대로 두고 질문만 영어로 바꿨을 때 비교용
@@ -65,8 +69,9 @@ DIFFICULTY_LEVELS_EN = {
 }
 INTENT_EN = "What kind of request is this?"
 INTENTS_EN = {
-    "faq": "A frequently asked customer question: delivery status, returns, exchanges, order cancellation, payment methods, customer service hours",
-    "task": "A work task: writing, summarizing, analyzing or translating",
+    "faq": "A frequently asked question with a fixed answer set by the company: opening hours, how to book or apply, required documents, delivery/return/payment procedures",
+    "service": "A question about using a product or service: how to use or care for it, recommendations, eligibility",
+    "task": "A request to do work: writing, summarizing, analyzing, translating, planning",
     "off_topic": "A personal question or small talk unrelated to the company's business",
 }
 YES_NO = {"ko": {"A": "예", "B": "아니오"}, "en": {"A": "Yes", "B": "No"}}
@@ -126,7 +131,7 @@ def truths(row: dict) -> dict:
     elif row["is_risky"] == "1":
         t["intent"] = None
     else:
-        t["intent"] = "task"
+        t["intent"] = "work"  # 이용 문의·업무 요청 (라우팅상 같은 경로)
     return t
 
 
@@ -147,7 +152,8 @@ def predict(qid: str, ans: dict):
     choice = ans["choice"]
     if key in BINARY:
         return key, variant, choice == "A", ans["confidence"], ans["probabilities"]["A"]
-    return key, variant, choice, ans["confidence"], choice
+    pred = INTENT_GROUP.get(choice, choice) if key == "intent" else choice
+    return key, variant, pred, ans["confidence"], choice
 
 
 def post(url: str, body: dict, timeout: float) -> dict:
