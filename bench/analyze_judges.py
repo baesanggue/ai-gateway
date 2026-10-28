@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_judges import TESTSET, mask_for_routing  # noqa: E402
 
+DOMAINS = {"T": "쇼핑몰·사내", "M": "의료", "F": "금융", "G": "공공민원"}
 LABELS = {"has_pii": "민감정보", "needs_raw_value": "원본 필요", "is_confidential": "기밀",
           "is_risky": "위험·인젝션", "difficulty": "난이도", "intent": "의도"}
 
@@ -65,15 +66,58 @@ def binary_metrics(rows: list[dict], positive: str) -> dict:
         return {"tp": tp, "n_pos": n_pos, "fp": fp, "n_neg": n_neg, "recall": rec, "fpr": fpr, "acc": acc, "bal": bal}
 
     default = rates([(p >= 0.5, y) for _, p, y in data])
-    cv, thresholds = [], {}
+    cv, cv_rows, thresholds = [], [], {}
     for f in (0, 1):
         fit = [(p, y) for rid, p, y in data if fold(rid) != f]
         t = choose_threshold([p for p, y in fit if y], [p for p, y in fit if not y])
         thresholds[f] = t
         cv += [(p >= t, y) for rid, p, y in data if fold(rid) == f]
+        cv_rows += [(rid, p >= t, y) for rid, p, y in data if fold(rid) == f]
     full_t = choose_threshold(pos, neg)
-    return {"default": default, "cv": rates(cv), "auc": auc(pos, neg),
+    return {"default": default, "cv": rates(cv), "cv_rows": cv_rows, "auc": auc(pos, neg),
             "thr_folds": thresholds, "thr_all": full_t, "majority": max(len(pos), len(neg)) / len(data)}
+
+
+def domain_section(sec, rout, local_model="gliclass:v4-edge") -> list[str]:
+    """채택 구성(로컬: gliclass noul, 클라우드: Decisions 'cloud' 묶음)의 업종별 결과."""
+    loc = next((r for m, r in sec if m["model"] == local_model), None)
+    cld = next((r for m, r in rout if m["questions"] == "cloud"), None)
+    if loc is None or cld is None:
+        return []
+    texts = {r["id"]: r["text"] for r in csv.DictReader(TESTSET.open(encoding="utf-8-sig", newline=""))}
+    masked = {rid: mask_for_routing(t) != t for rid, t in texts.items()}
+
+    def cv_rows(rows, key, variant, positive="True", refusal_yes=False, gated=False):
+        rs = [r for r in rows if r["question"] == key and r["variant"] == variant]
+        rs = [dict(r, p="1" if (refusal_yes and r["pred"] == "refusal") else r["p"]) for r in rs]
+        if gated:
+            rs = [dict(r, p=r["p"] if masked[r["id"]] else "0") for r in rs]
+        return binary_metrics(rs, positive)["cv_rows"]
+
+    items = [("민감정보 (로컬)", cv_rows(loc, "has_pii", "noul")),
+             ("기밀 (로컬)", cv_rows(loc, "is_confidential", "noul")),
+             ("원본 필요 (클라우드+조건)", cv_rows(cld, "needs_raw_value", "noul", refusal_yes=True, gated=True)),
+             ("위험·인젝션 (클라우드)", cv_rows(cld, "is_risky", "noul", refusal_yes=True))]
+    dif = cv_rows(cld, "difficulty", "score", positive="complex")
+    intent = [(r["id"], r["pred"] == r["label"]) for r in cld
+              if r["question"] == "intent" and r["label"] not in ("", "None")]
+
+    out = ["", "## 업종별 결과 (채택 구성, 교차검증 기준값)", "",
+           "| 업종 | " + " | ".join(f"{name}: 재현율 · 오탐" for name, _ in items) + " | 난이도 정확도 | 의도 정확도 |",
+           "|---|" + "---|" * (len(items) + 2)]
+    for prefix, dname in DOMAINS.items():
+        cells = []
+        for _, rows in items:
+            rs = [(yhat, y) for rid, yhat, y in rows if rid.startswith(prefix)]
+            tp = sum(y and yh for yh, y in rs)
+            npos = sum(y for _, y in rs)
+            fp = sum((not y) and yh for yh, y in rs)
+            cells.append(f"{tp}/{npos} · {fp}/{len(rs) - npos}")
+        d = [yh == y for rid, yh, y in dif if rid.startswith(prefix)]
+        it = [ok for rid, ok in intent if rid.startswith(prefix)]
+        cells += [f"{sum(d)}/{len(d)}", f"{sum(it)}/{len(it)}"]
+        out.append(f"| {dname} ({prefix}) | " + " | ".join(cells) + " |")
+    return out
 
 
 def pct(x) -> str:
@@ -179,6 +223,7 @@ def main():
                   f"- 지연: 평균 {meta['latency_ms_mean']} ms · p95 {meta['latency_ms_p95']} ms ({meta['latency_basis']})",
                   f"- 입력 토큰 합계: {meta['input_tokens_total']:,} (100요청)"]
 
+    lines += domain_section(sec, rout)
     (folder / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print("\n".join(lines))
 

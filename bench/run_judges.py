@@ -24,7 +24,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from spike_laya import BINARY, build_questions, truths  # noqa: E402
+from spike_laya import BINARY, INTENT_GROUP, build_questions, truths  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTSET = ROOT / "data" / "testset.csv"
@@ -45,14 +45,17 @@ CLOUD_INSTRUCTIONS = {
 # ---------- 측정용 가명화 근사 (제품 마스킹 아님) ----------
 # 테스트셋에 쓰인 가상 이름. 실제 제품에서는 사용자 사전이 이 역할을 한다.
 NAMES = ["김민수", "이서연", "박지훈", "최유진", "정하늘", "강도윤", "윤서아", "장예준",
-         "임채원", "한지우", "신동현", "조민지", "배준호", "송하린"]
+         "임채원", "한지우", "신동현", "조민지", "배준호", "송하린",
+         "오지현", "문태호", "서윤아", "권민재", "류하은", "차성민",      # 의료
+         "백승우", "노은비", "안지성", "홍다인", "구민철", "표서진",      # 금융
+         "진우석", "양미래", "하태준", "탁수빈", "길현아", "반도훈"]      # 공공민원
 PATTERNS = [  # 순서 중요: 긴 패턴부터
     ("주민번호", re.compile(r"\d{6}-\d{7}")),
     ("카드번호", re.compile(r"\d{4}-\d{4}-\d{4}-\d{4}")),
     ("전화번호", re.compile(r"0\d{1,2}-\d{3,4}-\d{4}")),
     ("이메일", re.compile(r"[\w.]+@[\w-]+(\.[\w-]+)+")),
     ("계좌번호", re.compile(r"\d{2,6}-\d{2,6}-\d{2,6}(-\d{1,6})?")),
-    ("주소", re.compile(r"(서울시|부산시)\s*\S+구\s*\S+?(대로|로|길)\s*[\d-]+(,\s*\d+동\s*\d+호)?")),
+    ("주소", re.compile(r"\S+(시|도)\s*\S+(구|군)\s*\S+?(대로|로|길)\s*[\d-]+(,\s*\d+동\s*\d+호)?")),
 ]
 
 
@@ -79,7 +82,7 @@ def normalize(qid: str, kind: str, probs: dict[str, float]) -> dict:
     if key == "difficulty":
         return {"p": probs["complex"]}
     best = max(probs, key=probs.get)
-    return {"pred": best, "probs": probs}
+    return {"pred": INTENT_GROUP.get(best, best), "probs": probs}
 
 
 def ollaya_call(base: str, model: str, text: str, questions: dict, timeout: float):
