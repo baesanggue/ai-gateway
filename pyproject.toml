@@ -6,13 +6,19 @@ readme = "README.md"
 requires-python = ">=3.11"
 # 의존성은 기능을 구현할 때 `uv add`로 추가한다 (M1부터)
 dependencies = [
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]   # 저장소 최상위에서 `gateway` 패키지를 import
 
 [dependency-groups]
 dev = [
+    "openai>=3.41.0",
     "pytest>=9.1.1",
 ]
