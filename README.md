@@ -144,13 +144,28 @@
 
 > 설치 스크립트는 M4(11/12~11/14)에 작성 예정
 
-기존 서비스의 API 주소만 게이트웨이로 바꾼다 (M1 구현 예정).
+### 개발 실행 (지금)
+
+```bash
+uv sync                                                      # 의존성 설치
+copy .env.example .env                                       # 키 입력 (커밋 금지)
+uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000 # 게이트웨이 실행
+uv run pytest                                                # 테스트
+```
+
+### 기존 서비스에 붙이기
+
+기존 서비스의 API 주소만 게이트웨이로 바꾼다. 지금(#7)은 고정 응답을 돌려주며, 판단·라우팅·답변 생성은 M1에서 연결한다.
 
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="...")
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="any-key")
+res = client.chat.completions.create(model="gpt-6-luna", messages=[{"role": "user", "content": "주문한 거 배송 언제 와요?"}])
 ```
+
+- 지원하는 것: `POST /v1/chat/completions` (`stream=false`, 텍스트 content), `GET /healthz`
+- 아직 지원하지 않는 것: `stream=true`, 이미지 등 텍스트가 아닌 content (OpenAI 형식 400 오류로 안내)
 
 | 설정 파일 | 내용 |
 |---|---|
@@ -161,7 +176,9 @@ client = OpenAI(base_url="http://localhost:8000/v1", api_key="...")
 
 | 경로 | 역할 |
 |---|---|
-| `gateway/api/` | OpenAI 호환 엔드포인트 (`/v1/chat/completions`) |
+| `gateway/main.py` | FastAPI 앱 생성 (`create_app`), 오류를 OpenAI 형식으로 바꿔 반환, `GET /healthz` |
+| `gateway/config.py` | `config.yaml`(일반 설정)과 `.env`(API 키) 로더. 키는 SecretStr로 감싸 출력되지 않음 |
+| `gateway/api/` | OpenAI 호환 엔드포인트 (`/v1/chat/completions`)와 요청·응답 스키마 |
 | `gateway/masking/` | 정규식·사용자 사전 기반 민감정보 감지, 가명화, 복원 |
 | `gateway/decision/` | 판단 엔진(`/v1/systemone` 형식) 클라이언트, 판단 질문 정의 |
 | `gateway/routing/` | 보안 수준·판단 결과·신뢰도로 처리 경로 결정 |
