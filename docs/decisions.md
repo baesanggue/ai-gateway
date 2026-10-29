@@ -111,4 +111,5 @@
   - 공개된 스크립트는 MPS·CPU용이라, 이 PC의 RTX 4080(CUDA)용 짧은 스크립트를 `finetune/`에 만든다.
   - 학습 데이터 형식은 JSONL 한 줄에 `{"state", "questions", "gold"}`이다. `gold`는 질문마다 `label`과 `probabilities`(확률 분포)로 적는다.
   - 서빙: `laya-serve`가 `/v1/systemone`을 제공한다. 우리가 학습한 가중치를 불러올 수 있는지는 #20에서 확인한다.
+- **(10/29) #20 통과**: `laya-serve`가 `LAYA_EXTRA_MODELS`로 등록한 로컬 체크포인트를 `/v1/systemone`으로 서빙함을 확인했다 (`docs/laya-serve-notes.md`). 트랙을 계속한다.
 - **학습 데이터 출처**: 학교 키가 일반용이라 OpenAI·xAI 출력은 쓰지 않는다(`docs/llm-api-notes.md` §3). 출력 사용 제한이 없는 로컬 오픈 모델(라이선스는 시작할 때 확인), 코드 템플릿, AI Hub 판결서 익명처리(로컬에서만 사용)를 쓴다. 테스트셋은 절대 학습에 넣지 않는다.
