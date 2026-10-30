@@ -26,6 +26,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from spike_laya import BINARY, INTENT_GROUP, build_questions, truths  # noqa: E402
 
+from gateway.decision.questions import NEEDS_RAW_VALUE  # noqa: E402  (spike_laya가 저장소 최상위를 경로에 넣는다)
+
 ROOT = Path(__file__).resolve().parent.parent
 TESTSET = ROOT / "data" / "testset.csv"
 DECISIONS_URL = "https://api.openai.com/v1/decisions"
@@ -35,11 +37,9 @@ SECURITY = [f"{k}__{v}" for k in BINARY for v in ("noul", "choice")]
 ROUTING = ["difficulty__score", "difficulty__choice", "intent__choice"]
 # 위험·인젝션과 원본 필요는 가명화된 문장으로도 판단할 수 있으므로 클라우드 쪽 후보로도 잰다
 CLOUD = ROUTING + ["is_risky__noul", "needs_raw_value__noul"]
-# 클라우드 predicate용 질문 문장. 두 문장짜리 원래 질문("…필요한가? 가려도 답할 수 있다면 필요하지 않은 것이다")은
-# 뒷문장에 답해 결과가 뒤집혔다(AUC 0.25) → 한 문장으로 고친다
-CLOUD_INSTRUCTIONS = {
-    "needs_raw_value__noul": "이 요청에 답하려면 [고객1]·[전화번호1] 같은 가명 토큰이 아니라 개인정보의 실제 값이 꼭 필요한가?",
-}
+# 클라우드 predicate용 질문 문장. 두 문장짜리 원래 질문은 뒷문장에 답해 결과가 뒤집혔다(AUC 0.25)
+# → 게이트웨이와 같은 한 문장 질문을 쓴다
+CLOUD_INSTRUCTIONS = {"needs_raw_value__noul": NEEDS_RAW_VALUE}
 
 
 # ---------- 측정용 가명화 근사 (제품 마스킹 아님) ----------

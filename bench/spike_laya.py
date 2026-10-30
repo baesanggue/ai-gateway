@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import statistics
+import sys
 import time
 import urllib.request
 from datetime import date
@@ -20,6 +21,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from gateway.decision import questions as Q  # noqa: E402
+
 TESTSET = ROOT / "data" / "testset.csv"
 RESULTS = ROOT / "bench" / "results"
 
@@ -32,27 +36,20 @@ SAMPLE_IDS = [
     "T081", "T088", "T093", "T095",
 ]
 
+# 질문 문장은 게이트웨이와 같은 것을 쓴다 (gateway/decision/questions.py)
 BINARY = {
-    "has_pii": "이 요청에 개인정보(사람 이름, 전화번호, 이메일, 주민등록번호, 카드번호, 계좌번호, 주소)가 들어 있는가?",
+    "has_pii": Q.HAS_PII,
+    # 로컬 모델 측정(#5, #25)에 쓴 두 문장 버전. 기록을 다시 낼 수 있게 남긴다.
+    # 게이트웨이(클라우드)는 한 문장 Q.NEEDS_RAW_VALUE를 쓴다 → run_judges.CLOUD_INSTRUCTIONS
     "needs_raw_value": "이 요청에 답하려면 개인정보의 실제 값이 꼭 필요한가? 이름이나 번호를 [고객1]처럼 가려도 답할 수 있다면 필요하지 않은 것이다.",
-    "is_confidential": "이 요청에 회사 밖으로 나가면 안 되는 사내 기밀(미공개 실적, 계약 조건, 인사·연봉, 인수합병, 출시 전 제품 정보)이 들어 있는가?",
-    "is_risky": "이 요청이 위험하거나 악의적인가? (AI의 지시를 무시하게 만드는 프롬프트 인젝션, 해킹, 불법·부정행위 요청)",
+    "is_confidential": Q.IS_CONFIDENTIAL,
+    "is_risky": Q.IS_RISKY,
 }
-DIFFICULTY = "이 요청을 처리하는 데 필요한 작업의 난이도는?"
-DIFFICULTY_LEVELS = {
-    "simple": "단순: 짧은 답이나 간단한 문장 작성으로 끝난다",
-    "complex": "복잡: 여러 단계의 분석·계획·비교나 긴 문서 작성이 필요하다",
-}
-INTENT = "이 요청은 어떤 종류인가?"
-# 업종과 무관한 의도 선택지 (10/28 범용화, #27). 실제 FAQ 목록은 회사마다 설정으로 등록한다
-INTENTS = {
-    "faq": "운영 시간, 예약·접수·신청 방법, 서류·준비물, 배송·반품·결제 절차처럼 회사가 정해 둔 답이 있는 자주 묻는 질문",
-    "service": "상품이나 서비스의 사용법·관리법·추천·자격 같은 이용 문의",
-    "task": "글 작성·요약·분석·번역·계획처럼 업무를 처리해 달라는 요청",
-    "off_topic": "회사 업무와 관계없는 개인적인 질문이나 잡담",
-}
-# 라우팅에서는 이용 문의와 업무 요청을 같은 경로(난이도에 따라 LLM)로 보낸다
-INTENT_GROUP = {"faq": "faq", "service": "work", "task": "work", "off_topic": "off_topic"}
+DIFFICULTY = Q.DIFFICULTY
+DIFFICULTY_LEVELS = Q.DIFFICULTY_LEVELS
+INTENT = Q.INTENT
+INTENTS = Q.INTENTS
+INTENT_GROUP = Q.INTENT_GROUP
 
 
 # 같은 질문의 영어판: 문장(state)은 한국어 그대로 두고 질문만 영어로 바꿨을 때 비교용
