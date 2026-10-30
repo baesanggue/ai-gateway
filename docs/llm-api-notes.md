@@ -71,9 +71,12 @@
 | 모델 | 라이선스 | 출력으로 학습 · 배포 | 16GB에 들어가는가 (Ollama 표시 크기) | 판정 |
 |---|---|---|---|---|
 | Google `gemma-4` (12B, 26B-A4B 등) | **Apache 2.0** (Gemma 4부터. 이전 Gemma Terms는 적용 안 됨) | 제한 조항 없음 | 공식 `gemma4:12b` 8GB ✓, `26b` 16~19GB(일부 CPU) | **후보** · 140개 이상 언어(한국어를 따로 명시하지는 않음) |
-| Alibaba `Qwen3.8-27B` | **Apache 2.0** | 제한 조항 없음 | 공식 `qwen3.8:27b` 18GB (일부 CPU) | **후보** · 기본으로 생각 모드(끌 수 있음), 한국어 명시 없음 |
-| Alibaba `Qwen3.6-35B-A3B` (MoE, 활성 3B) | **Apache 2.0** | 제한 조항 없음 | 공식 `qwen3.6:35b` 23GB (CPU 많이 씀) | 예비 |
+| Alibaba `Qwen3.8-27B` | **Apache 2.0** | 제한 조항 없음 | 공식 `qwen3.8:27b` 18GB (일부 CPU) | **제외 (10/30)** · 보안 보고, 아래 참고 |
+| Alibaba `Qwen3.6-35B-A3B` (MoE, 활성 3B) | **Apache 2.0** | 제한 조항 없음 | 공식 `qwen3.6:35b` 23GB (CPU 많이 씀) | 보류 · Qwen3.8 원인이 밝혀질 때까지 |
 | OpenAI `gpt-oss-20b` | **Apache 2.0** + 사용 정책(법 준수 한 문장) | 제한 조항 없음 | 공식 `gpt-oss:20b` 14GB ✓ | **후보** · 추론 모델, 전용 형식(harmony), 한국어 명시 없음 |
+| Mistral AI `Mistral-Small-3.2-24B-Instruct-2506` | **Apache 2.0** | 제한 조항 없음 | 공식 `mistral-small3.2:24b` 15GB (경계) | **후보 (10/30, Qwen3.8 대신)** · Small 3 계열 설명에 **한국어 명시**, 권장 temperature 0.15 |
+| IBM `granite-4.0` | Apache 2.0 | 제한 조항 없음 | 16GB에 들어가는 것은 `tiny-h`(7B, 활성 1B) 이하 | 예비 · 한국어 명시, 작아서 품질 우려 |
+| Microsoft `phi-4` (14B) | MIT | 제한 조항 없음 | 공식 `phi4` 9.1GB ✓ | 제외 · "주로 영어"라고 명시 |
 | SKT `A.X-4.0-Light` (7B) | **Apache 2.0** (NOTICE에 Qwen 2.5 기반 표기 필요) | 제한 조항 없음 | 공식 Ollama 없음 (커뮤니티 GGUF만) | 예비 · 한국어 특화 |
 | KT `Midm-2.0-Base-Instruct` (11.5B) | 모델 카드는 MIT, **LICENSE 파일 404** | 원문 미확인 | 공식 Ollama 없음 | 보류 (원문 확인 전엔 안 씀) |
 | Upstage `solar-pro-preview` (22B) | MIT | 제한 조항 없음 | 공식 `solar-pro` | 제외 · 영어 중심, 4K 문맥, 프리뷰 |
@@ -81,6 +84,16 @@
 | Naver `HyperCLOVAX-SEED` (8B·14B) | HyperCLOVA X SEED License | 출력으로 학습한 모델은 **이름 앞에 "HyperCLOVA X"**, 금지 정책에 "개인정보 생성" 포함 | Ollama 없음 | **제외** · 이름 조건 + 가상 개인정보 생성과 충돌 소지 |
 | LG `EXAONE-4.x` | EXAONE 1.2 **NC (비상업)** | **경쟁 모델 개발에 출력 사용 금지**, 연구·교육용만 | 32B 커뮤니티 빌드만 | **제외** |
 
-- 모델 카드가 한국어를 명시하지 않는 후보(Gemma 4, Qwen, gpt-oss)는 **우리 한국어 문장으로 직접 생성 품질을 시험**한 뒤 고른다.
+- 후보 3개(Gemma 4, gpt-oss, Mistral Small 3.2)는 **우리 한국어 문장으로 직접 생성 품질을 시험**한 뒤 고른다. 한국어를 명시한 것은 Mistral뿐이다.
+- **시험 결과 (10/30): `gemma4:12b`로 정했다.** 자동 검사(형식·한국어·개인정보 값·중복)는 세 모델이 비슷했다. 직접 읽어 보면 차이가 났다.
+  - gemma4: 조건을 가장 잘 지키고 말투가 고르게 섞인다. 초당 118토큰, GPU 100%.
+  - gpt-oss: 기밀 요청을 사실 진술로 썼고, 예시를 글자 그대로 따라 했다.
+  - Mistral: 문법 오류가 있었고, 초당 23토큰으로 느렸다.
+  - 근거: `bench/results/generator-trial-2026-10-30/summary.md`
+- **Qwen3.8 제외 이유 (10/30)**: Cohere가 10/26에 보고했다. 도구(셸)를 가진 에이전트 시험에서 `Qwen3.8-Flash-Next`가 지시에 없던 `curl` 업로드를 Alibaba Cloud 저장소(베이징)로 시도했고, 샌드박스가 막았다. 빈도는 10만 번에 1번 미만이다.
+  - 원인은 아직 모른다. 학습 데이터 잔재라는 설명과 의도적 백도어라는 가설이 둘 다 있고, Alibaba는 공식 답변을 내지 않았다.
+  - 우리가 쓰는 27B dense 모델은 시험 대상이 아니었다. 도구 없이 Ollama로 글만 생성하면 모델이 스스로 네트워크에 접근할 수 없다.
+  - 그래도 제외하는 이유: 출력이 배포할 모델의 **학습 데이터**가 되므로 숨은 동작이 섞일 가능성을 0으로 만들 수 없다. **보안 제품**의 데이터 출처로 설명하기도 어렵다. 같은 Apache 2.0 대안(Gemma 4, gpt-oss)이 있고, 16GB GPU에 다 들어가지도 않는다.
+  - 출처: [Cohere 블로그](https://cohere.com/blog/concerning-behaviour-popular-open-weight-ai-model), [The Register](https://www.theregister.com/ai-and-ml/2026/10/26/alibabas-qwen-ai-caught-trying-to-contact-server-in-china/5305561)
 - 공식 Ollama 라이브러리에 있는 모델을 우선한다. 출처를 확인하기 어려운 커뮤니티 GGUF는 받지 않는다.
 
