@@ -63,6 +63,7 @@ class LLMModelConfig(BaseModel):
 class LLMConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     timeout_seconds: float = 60
+    placeholder_instruction: str | None = None   # 가명화된 요청에 붙이는 지시 (없으면 붙이지 않음)
     cheap: LLMModelConfig
     premium: LLMModelConfig
 

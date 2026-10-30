@@ -52,6 +52,12 @@ routing:
 llm:
   base_url: https://api.openai.com/v1   # OpenAI Chat Completions. 키는 .env의 OPENAI_API_KEY
   timeout_seconds: 60
+  # 가명화된 요청에 맨 앞에 붙이는 지시. 없으면 모델이 [고객1]을 "고객님"으로 바꿔 복원할 자리가 사라진다
+  # 효과 측정: bench/results/placeholder-2026-10-30/
+  placeholder_instruction: >-
+    요청에 있는 [고객1], [전화번호1]처럼 대괄호로 표시된 토큰은 개인정보를 가린 자리표시자다.
+    답변에서 그 사람이나 값을 가리킬 때는 토큰을 대괄호까지 그대로 써라.
+    토큰을 '고객님' 같은 말로 바꾸거나, 새 토큰을 만들거나, 실제 값을 추측하지 마라.
   cheap:
     provider: openai
     model: gpt-6-luna
