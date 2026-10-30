@@ -31,7 +31,7 @@ from run_judges import PATTERNS  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 TESTSET = ROOT / "data" / "testset.csv"
 OLLAMA = "http://127.0.0.1:11434"
-MODELS = ["gemma4:12b", "gpt-oss:20b", "qwen3.8:27b"]
+MODELS = ["gemma4:12b", "gpt-oss:20b", "mistral-small3.2:24b"]   # qwen3.8:27b는 보안 보고로 제외 (docs/llm-api-notes.md §5)
 N = 10
 
 SYSTEM = ("너는 한국어 업무용 AI 챗봇에 들어오는 요청을 분류하는 모델의 학습 데이터를 만든다. "
@@ -53,17 +53,20 @@ SPECS = [
      "직원이 AI에게 맡기는 복잡한 업무 요청. 여러 조건이나 자료를 비교·분석하거나 긴 문서를 써야 하는 것"
      "(보고서 초안, 비교표, 기획안 검토 등). 개인정보는 넣지 않는다.", False),
     ("pii_maskable", "병원 원무과",
-     "환자의 이름과 휴대전화 번호(010-XXXX-XXXX 형식)가 문장에 그대로 들어 있지만, 이름과 번호를 [환자1]·[전화번호1] 같은 "
-     "가명으로 바꿔도 AI가 답할 수 있는 요청(예약 안내 문자 작성, 검사 결과 안내 메일 작성 등).", True),
+     "환자의 이름과 휴대전화 번호(010-XXXX-XXXX 형식)가 실제처럼 보이는 가상 값으로 문장에 들어 있는 요청. "
+     "다만 이름과 번호를 가려도 AI가 답할 수 있는 일이어야 한다(예약 안내 문자 작성, 검사 결과 안내 메일 작성 등). "
+     "[환자1]이나 '환자1' 같은 가명 표기는 쓰지 않는다.", True),
     ("needs_raw", "은행·카드사 상담",
-     "고객의 주민등록번호, 계좌번호, 카드번호 중 하나 이상이 하이픈을 포함한 실제 형식으로 문장에 들어 있고, 그 실제 값을 봐야만 "
-     "답할 수 있는 요청(주민번호로 나이·성별 계산, 계좌번호 자릿수 확인, 두 번호가 같은지 비교 등).", True),
+     "고객의 주민등록번호, 계좌번호, 카드번호 중 하나 이상이 하이픈을 포함한 실제 형식으로 문장에 들어 있고, 문장에 있는 그 번호만 "
+     "보고 계산하거나 비교해야 답할 수 있는 요청(주민번호로 나이·성별 계산, 계좌번호 자릿수 확인, 두 번호가 같은지 비교 등). "
+     "카드 한도·결제 금액·유효기간처럼 회사 시스템을 조회해야 하는 요청은 만들지 않는다.", True),
     ("hard_negative_pii", "구청 민원실",
      "주민등록번호·전화번호·계좌번호 같은 개인정보 '단어'는 나오지만 실제 값은 전혀 없는 요청(발급 절차, 변경 방법 문의 등). "
      "숫자로 된 개인정보 값은 절대 넣지 않는다.", False),
     ("confidential", "사내 업무",
-     "외부에 알려지면 안 되는 회사 기밀이 문장 안에 들어 있는 요청(미공개 실적 수치, 인수합병 계획, 인사평가 결과, "
-     "거래처 단가·계약 조건 등). 개인 연락처는 넣지 않는다.", False),
+     "외부에 알려지면 안 되는 회사 기밀의 구체적인 내용(수치, 회사명, 조건)이 문장 안에 직접 들어 있는 요청"
+     "(미공개 실적 수치, 인수합병 대상과 금액, 인사평가 결과, 거래처 단가·계약 조건 등). "
+     "기밀의 주제만 말하고 내용은 없는 요청은 만들지 않는다. 개인 연락처는 넣지 않는다.", False),
     ("risky", "업무용 AI 챗봇",
      "AI가 받은 지시를 무시하게 하거나(프롬프트 인젝션), 시스템 프롬프트나 다른 고객 정보를 빼내려 하거나, "
      "불법·유해한 일을 시키려는 요청. 해를 끼칠 구체적인 방법은 쓰지 말고 요청 문장만 만든다.", False),
@@ -108,6 +111,37 @@ def think_setting(client: httpx.Client, model: str):
     return "low" if "low" in values else None
 
 
+def chat(client: httpx.Client, body: dict) -> tuple[dict, int]:
+    """Ollama 실행기 오류(모델을 바꾸는 중 GPU 메모리를 못 받는 경우 등)는 한 번 다시 시도한다.
+    모델이 형식에 안 맞는 답을 낸 것은 다시 시도하지 않는다 (그것도 측정 대상이다)."""
+    for attempt in (1, 2):
+        res = client.post("/api/chat", json=body).json()
+        if "error" not in res or attempt == 2:
+            return res, attempt
+        time.sleep(5)
+
+
+def warm_up(client: httpx.Client, model: str, tries: int = 5) -> int:
+    """측정 전에 모델을 GPU에 올린다. 몇 번째에 올라갔는지 돌려준다 (실패하면 tries + 1).
+    gpt-oss는 다른 모델 다음에 올릴 때 CUDA 초기화가 간헐적으로 실패했다 (10/30, Ollama 0.40.13).
+    올리는 시간을 첫 호출의 지연에서 빼는 효과도 있다."""
+    for attempt in range(1, tries + 1):
+        if "error" not in client.post("/api/generate", json={"model": model, "prompt": ""}).json():
+            return attempt
+        time.sleep(5)
+    return tries + 1
+
+
+def unload(client: httpx.Client, model: str) -> None:
+    """다음 모델에 GPU를 비워 준다. /api/ps에서 사라진 뒤에도 메모리 반환이 늦어 몇 초 더 기다린다."""
+    client.post("/api/generate", json={"model": model, "keep_alive": 0})
+    for _ in range(60):
+        if all(m.get("name") != model for m in client.get("/api/ps").json().get("models", [])):
+            break
+        time.sleep(1)
+    time.sleep(3)
+
+
 def gpu_share(client: httpx.Client, model: str) -> float | None:
     for m in client.get("/api/ps").json().get("models", []):
         if m.get("name") == model and m.get("size"):
@@ -127,9 +161,10 @@ def main():
         testset = [(r["id"], norm(r["text"])) for r in csv.DictReader(f)]
 
     client = httpx.Client(base_url=OLLAMA, timeout=900)
-    calls, items = [], []
+    calls, items, loads = [], [], {}
     for model in args.models:
         think = think_setting(client, model)
+        loads[model] = warm_up(client, model)
         share = None
         for spec_id, domain, desc, expect_pii in SPECS:
             body = {"model": model, "stream": False, "format": SCHEMA, "think": think,
@@ -137,7 +172,7 @@ def main():
                     "messages": [{"role": "system", "content": SYSTEM},
                                  {"role": "user", "content": f"상황: {domain}\n만들 요청: {desc}\n\n{RULES}"}]}
             t0 = time.perf_counter()
-            res = client.post("/api/chat", json=body).json()
+            res, attempts = chat(client, body)
             wall = time.perf_counter() - t0
             share = share if share is not None else gpu_share(client, model)
             msg = res.get("message") or {}
@@ -148,6 +183,7 @@ def main():
                 texts, error = [], f"{type(e).__name__}: {(msg.get('content') or res.get('error') or '')[:80]}"
             eval_s = (res.get("eval_duration") or 0) / 1e9
             calls.append({"model": model, "spec": spec_id, "think": think, "n_items": len(texts), "error": error,
+                          "attempts": attempts,
                           "done_reason": res.get("done_reason"), "prompt_tokens": res.get("prompt_eval_count"),
                           "output_tokens": res.get("eval_count"), "thinking_chars": len(msg.get("thinking") or ""),
                           "tok_per_s": round(res["eval_count"] / eval_s, 1) if eval_s else None,
@@ -168,7 +204,7 @@ def main():
         for c in calls:
             if c["model"] == model:
                 c["gpu_share"] = share
-        client.post("/api/generate", json={"model": model, "keep_alive": 0})   # 다음 모델에 GPU를 비워 준다
+        unload(client, model)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     stem = args.out_dir / f"{date.today().isoformat()}-generator-trial"
@@ -184,8 +220,9 @@ def main():
         mi = [r for r in items if r["model"] == model]
         korean = [r for r in mi if r["hangul_ratio"] >= 0.5 and not r["foreign_script"]]
         summary["models"][model] = {
-            "think": mc[0]["think"], "gpu_share": mc[0].get("gpu_share"),
+            "think": mc[0]["think"], "gpu_share": mc[0].get("gpu_share"), "load_attempts": loads[model],
             "calls_failed": sum(bool(c["error"]) for c in mc),
+            "calls_retried": sum(c["attempts"] > 1 for c in mc),
             "items": len(mi), "expected": N * len(SPECS),
             "korean_ok": len(korean), "foreign_script": sum(r["foreign_script"] for r in mi),
             "pii_ok": sum(r["pii_ok"] for r in mi),
@@ -194,8 +231,9 @@ def main():
             "near_dup": sum(r["near_dup"] for r in mi),
             "testset_sim_ge_0.8": sum(r["testset_sim"] >= 0.8 for r in mi),
             "testset_sim_max": max((r["testset_sim"] for r in mi), default=0),
-            "chars_median": statistics.median(r["chars"] for r in mi) if mi else 0,
-            "tok_per_s_median": statistics.median(c["tok_per_s"] for c in mc if c["tok_per_s"]) if mc else 0,
+            "chars_median": statistics.median(r["chars"] for r in mi) if mi else None,
+            "tok_per_s_median": statistics.median(speeds) if (speeds := [c["tok_per_s"] for c in mc if c["tok_per_s"]])
+                                else None,
             "wall_s_total": round(sum(c["wall_s"] for c in mc), 1),
             "output_tokens_total": sum(c["output_tokens"] or 0 for c in mc),
             "thinking_chars_total": sum(c["thinking_chars"] for c in mc),
