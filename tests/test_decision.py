@@ -122,33 +122,16 @@ def test_cloud_answers_are_normalized_with_thresholds(tmp_path):
     assert r.input_tokens == 120
 
 
-def test_refused_routing_question_is_asked_again_alone(tmp_path):
-    fake = FakeEngines(cloud_rounds=[{"difficulty": refusal("difficulty")}, {}])
-    r = make_service(tmp_path, fake).judge_cloud(MASKED, has_masked_pii=True)
-
-    first, second = fake.cloud_bodies()
-    assert [q["name"] for q in second["questions"]] == ["difficulty"]
-    assert second["input"] == MASKED
-    d = r.judgments["difficulty"]
-    assert not d.refused and d.retried and d.value == "simple"
-    assert r.input_tokens == 240
-
-
-def test_question_refused_again_stays_refused(tmp_path):
-    fake = FakeEngines(cloud_rounds=[{"intent": refusal("intent")}, {"intent": refusal("intent")}])
-    r = make_service(tmp_path, fake).judge_cloud(MASKED, has_masked_pii=True)
-
-    assert len(fake.cloud_bodies()) == 2
-    assert r.judgments["intent"].refused and r.judgments["intent"].retried
-    assert r.judgments["intent"].value is None
-
-
-def test_refused_risky_question_is_not_asked_again(tmp_path):
-    fake = FakeEngines(cloud_rounds=[{"is_risky": refusal("is_risky")}])
+def test_refused_questions_are_marked_and_not_asked_again(tmp_path):
+    # 다시 물어도 26문장 모두 똑같이 거부했다 (#8) → 거부는 표시만 하고, 처리는 라우팅이 한다
+    fake = FakeEngines(cloud_rounds=[{"difficulty": refusal("difficulty"), "is_risky": refusal("is_risky")}])
     r = make_service(tmp_path, fake).judge_cloud(MASKED, has_masked_pii=True)
 
     assert len(fake.cloud_bodies()) == 1
-    assert r.judgments["is_risky"].refused and not r.judgments["is_risky"].retried
+    for q in ("difficulty", "is_risky"):
+        j = r.judgments[q]
+        assert j.refused and j.value is None and j.confidence is None
+    assert r.judgments["intent"].value == "work" and r.available
 
 
 def raise_timeout(request):

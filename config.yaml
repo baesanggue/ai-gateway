@@ -27,7 +27,8 @@ decision:
     timeout_seconds: 10
     questions: [needs_raw_value, is_risky, difficulty, intent]
     needs_raw_only_if_masked: true   # 가명화된 개인정보가 있을 때만 '원본 필요'를 묻는다 (코드 조건)
-    on_refusal: block                # 판단 거부는 차단 쪽으로
+    on_refusal: block                # 위험·원본 필요 질문을 거부하면 차단
+    on_routing_refusal: premium      # 난이도·의도 질문만 거부하면 고성능 (차단 대상은 위험·원본 필요 판단이 이미 잡는다, #8)
     on_error_route: cheap            # 응답 실패·시간 초과 시 대체 경로
 
   # 질문별 '예' 기준값: 190행 전체로 정함 (bench/results/compare-190-2026-10-28/summary.md)

@@ -38,11 +38,12 @@ judge_cloud(가명화문, has_masked_pii)  → 클라우드 엔진: needs_raw_va
 
 | 상황 | 처리 | 이후 (#10) |
 |---|---|---|
-| 난이도·의도 질문을 거부 | 그 질문만 따로 한 번 더 묻는다 (`RETRY_ON_REFUSAL`) | 그래도 거부면 `refused`로 남고, `on_refusal` 적용 |
-| 위험·원본 필요 질문을 거부 | 다시 묻지 않는다 | `on_refusal` 적용 |
+| 난이도·의도 질문을 거부 (`ROUTING_QUESTIONS`) | `refused`로 표시 | `on_routing_refusal: premium` (고성능) |
+| 위험·원본 필요 질문을 거부 | `refused`로 표시 | `on_refusal: block` (차단) |
 | 시간 초과, 연결 실패, HTTP 오류, 알 수 없는 응답 형식 | 예외 대신 `JudgeResult.error`. 메시지에 문장·키를 넣지 않는다 | 클라우드는 `on_error_route`, 로컬은 #10에서 정함 |
 | `.env`에 `OPENAI_API_KEY`가 없음 | `DecisionService.from_settings`가 시작할 때 `ValueError` | — |
 
+- 거부된 질문을 다시 묻지 않는다. 190행에서 거부된 26문장을 다시 물었더니 모두 똑같이 거부했다 (D16, `bench/retry_refusals.py`).
 - HTTP 연결은 엔진마다 `httpx.Client` 하나를 재사용한다. 다 쓰면 `DecisionService.close()`.
 
 ## OpenAI Decisions 형식 (공식 문서 확인, 2026-10-30)

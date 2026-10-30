@@ -52,6 +52,7 @@ QUESTIONS: dict[str, Question] = {
     "intent": Question("choice", INTENT, INTENTS),
 }
 
-# 판단을 거부(refusal)하면 이 질문들만 한 번 다시 묻는다.
-# 190행에서 거부는 전부 이 두 질문에서 나왔고, 위험·원본 필요 질문은 거부 없이 답했다 (#8)
-RETRY_ON_REFUSAL = ("difficulty", "intent")
+# 경로(저렴·고성능·FAQ)를 고르는 데만 쓰는 질문. 이 질문의 판단 거부는 차단 대신
+# decision.cloud.on_routing_refusal로 처리한다. 위험·원본 필요 질문의 거부는 on_refusal(차단)
+# 190행에서 거부는 전부 이 두 질문에서 나왔고, 다시 물어도 26문장 모두 똑같이 거부했다 (#8)
+ROUTING_QUESTIONS = ("difficulty", "intent")

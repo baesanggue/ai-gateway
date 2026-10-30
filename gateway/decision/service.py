@@ -4,6 +4,7 @@
 - judge_cloud(가명화문, has_masked_pii): 가명화된 문장으로 충분한 판단.
   가명화와 로컬 판단이 끝난 뒤에, 차단되지 않은 요청만 부른다 (설계 결정 1번)
 경로 결정(FAQ·저렴·고성능·차단)은 하지 않는다 → gateway/routing (#10)
+판단 거부는 refused로 표시만 하고 다시 묻지 않는다 (다시 물어도 결과가 같았다, #8).
 엔진 오류는 예외 대신 JudgeResult.error로 돌려준다. 라우팅이 on_error_route 등으로 처리한다.
 """
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field
 from gateway.config import DecisionConfig, Settings
 from gateway.decision.engines import (DecisionError, Engine, EngineAnswer, OpenAIDecisionsEngine,
                                       SystemOneEngine)
-from gateway.decision.questions import INTENT_GROUP, QUESTIONS, RETRY_ON_REFUSAL
+from gateway.decision.questions import INTENT_GROUP, QUESTIONS
 
 
 @dataclass
@@ -21,7 +22,6 @@ class Judgment:
     # 예/아니오 판단: 기준값 이상이면 True / 난이도: "simple"|"complex" / 의도: "faq"|"work"|"off_topic"
     value: bool | str | None
     confidence: float | None         # (K·p_max − 1)/(K − 1), 코드에서 계산. 로그·화면 표시용
-    retried: bool = False            # 거부되어 한 번 더 물었는가
 
     @property
     def refused(self) -> bool:
@@ -33,7 +33,7 @@ class JudgeResult:
     engine: str                      # "local" | "cloud"
     model: str                       # 요청한 모델 이름 (응답의 model은 서버마다 다르다)
     judgments: dict[str, Judgment] = field(default_factory=dict)
-    latency_ms: float = 0.0          # 다시 물은 시간 포함
+    latency_ms: float = 0.0
     input_tokens: int = 0
     error: str | None = None         # 엔진 오류(시간 초과 등). 이때 judgments는 비어 있다
 
@@ -76,19 +76,7 @@ class DecisionService:
     def judge_cloud(self, masked_text: str, has_masked_pii: bool) -> JudgeResult:
         qids = [q for q in self.cfg.cloud.questions
                 if not (q == "needs_raw_value" and self.cfg.cloud.needs_raw_only_if_masked and not has_masked_pii)]
-        result = self._ask("cloud", self.cloud, masked_text, qids)
-
-        # 거부된 라우팅 질문만 따로 한 번 더 묻는다 (D14: 거부로 막히는 정상 요청 ≤ 1%)
-        refused = [q for q, j in result.judgments.items() if j.refused and q in RETRY_ON_REFUSAL]
-        if refused:
-            retry = self._ask("cloud", self.cloud, masked_text, refused)
-            result.latency_ms += retry.latency_ms
-            result.input_tokens += retry.input_tokens
-            for q in refused:
-                again = retry.judgments.get(q)  # 다시 묻다가 오류가 나면 처음 거부를 그대로 둔다
-                result.judgments[q] = again if again is not None else result.judgments[q]
-                result.judgments[q].retried = True
-        return result
+        return self._ask("cloud", self.cloud, masked_text, qids)
 
     def _ask(self, name: str, engine: Engine, text: str, qids: list[str]) -> JudgeResult:
         if not qids:
