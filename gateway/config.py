@@ -29,7 +29,8 @@ class CloudDecisionConfig(BaseModel):
     timeout_seconds: float = 10
     questions: list[str]
     needs_raw_only_if_masked: bool = True
-    on_refusal: Literal["block", "premium", "cheap"] = "block"
+    on_refusal: Literal["block", "premium", "cheap"] = "block"            # 위험·원본 필요 질문의 거부
+    on_routing_refusal: Literal["block", "premium", "cheap"] = "premium"  # 난이도·의도 질문의 거부
     on_error_route: Literal["block", "premium", "cheap"] = "cheap"
 
 
