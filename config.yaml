@@ -48,18 +48,22 @@ routing:
   # 신뢰도가 기준보다 낮을 때 보낼 안전한 경로
   low_confidence_route: premium   # premium | block
 
-# LLM (저렴한 모델 1종 + 고성능 모델 1종)
+# LLM (저렴한 모델 1종 + 고성능 모델 1종) — 선택 근거 D17, 가격 출처 docs/llm-api-notes.md §1 (10/30 확인)
 llm:
+  base_url: https://api.openai.com/v1   # OpenAI Chat Completions. 키는 .env의 OPENAI_API_KEY
+  timeout_seconds: 60
   cheap:
-    provider: ""            # TODO(M1): 제공자·모델 결정
-    model: ""
-    price_per_1m_input: null    # 비용 추정용 (USD / 100만 토큰)
-    price_per_1m_output: null
+    provider: openai
+    model: gpt-6-luna
+    reasoning_effort: none      # 추론 토큰은 출력 가격으로 청구되고 느려진다. 단순 요청은 추론 없이
+    price_per_1m_input: 0.10    # 비용 추정용 (USD / 100만 토큰, Standard)
+    price_per_1m_output: 0.50
   premium:
-    provider: ""            # TODO(M1): 제공자·모델 결정
-    model: ""
-    price_per_1m_input: null
-    price_per_1m_output: null
+    provider: openai
+    model: gpt-6.1-sol
+    reasoning_effort: low       # gpt-6.1-sol은 none을 지원하지 않는다 (low가 가장 낮음)
+    price_per_1m_input: 2.00
+    price_per_1m_output: 10.00
 
 # 민감정보 처리
 masking:

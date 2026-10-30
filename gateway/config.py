@@ -53,13 +53,16 @@ class RoutingConfig(BaseModel):
 
 
 class LLMModelConfig(BaseModel):
-    provider: str = ""
-    model: str = ""
-    price_per_1m_input: float | None = None
-    price_per_1m_output: float | None = None
+    provider: Literal["openai"] = "openai"
+    model: str
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] | None = None
+    price_per_1m_input: float
+    price_per_1m_output: float
 
 
 class LLMConfig(BaseModel):
+    base_url: str = "https://api.openai.com/v1"
+    timeout_seconds: float = 60
     cheap: LLMModelConfig
     premium: LLMModelConfig
 
