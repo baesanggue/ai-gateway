@@ -1,0 +1,53 @@
+{
+ "rows": 37,
+ "calls": 148,
+ "errors": 0,
+ "conditions": {
+  "cheap/지시 없음": {
+   "n": 37,
+   "name_kept": "11/37",
+   "all_kept": "10/37",
+   "invented_rows": [
+    "T064"
+   ],
+   "prompt_tokens_mean": 40.1,
+   "completion_tokens_mean": 119.1,
+   "latency_ms_mean": 2354
+  },
+  "cheap/지시": {
+   "n": 37,
+   "name_kept": "37/37",
+   "all_kept": "29/37",
+   "invented_rows": [],
+   "prompt_tokens_mean": 134.1,
+   "completion_tokens_mean": 113.0,
+   "latency_ms_mean": 2420
+  },
+  "premium/지시 없음": {
+   "n": 37,
+   "name_kept": "33/37",
+   "all_kept": "26/37",
+   "invented_rows": [
+    "T064"
+   ],
+   "prompt_tokens_mean": 40.1,
+   "completion_tokens_mean": 226.8,
+   "latency_ms_mean": 5651
+  },
+  "premium/지시": {
+   "n": 37,
+   "name_kept": "37/37",
+   "all_kept": "29/37",
+   "invented_rows": [],
+   "prompt_tokens_mean": 134.1,
+   "completion_tokens_mean": 174.7,
+   "latency_ms_mean": 4827
+  }
+ },
+ "premium_over_cheap_output_ratio": {
+  "mean": 1.46,
+  "median": 1.48,
+  "n": 37
+ },
+ "prompt_tokens_per_char": 0.786
+}
