@@ -6,13 +6,21 @@
 
 ## 1. OpenAI ([문서](https://developers.openai.com/api/docs))
 
-| 용도 | 모델 | 가격 (100만 토큰당 입력 / 출력) |
-|---|---|---|
-| 저렴한 모델 후보 | `gpt-5-nano` | $0.05 / $0.40 |
-| 저렴한 모델 후보 | `gpt-6-luna` | $0.10 / $0.50 |
-| 고성능 모델 후보 | `gpt-6-sol` | $2.00 / $10.00 |
-| 최상위 | `gpt-6-astra` | $10.00 / $50.00 |
+**(10/30 다시 확인)** [가격](https://developers.openai.com/api/docs/pricing) · [모델](https://developers.openai.com/api/docs/models) · [지원 종료](https://developers.openai.com/api/docs/deprecations) 페이지 기준, Standard 요금, 입력 272K 토큰 이하
 
+| 용도 | 모델 | 가격 (100만 토큰당 입력 / 캐시 입력 / 출력) | 비고 |
+|---|---|---|---|
+| **저렴한 모델 (채택, D17)** | `gpt-6-luna` | $0.10 / $0.01 / $0.50 | "가장 효율적인 모델". 추론 강도 none~max (기본 medium) |
+| **고성능 모델 (채택, D17)** | `gpt-6.1-sol` | $2.00 / $0.10 / $10.00 | "Astra에 가까운 성능을 더 낮은 비용으로". 추론 강도 low~max (none 없음) |
+| 중간 | `gpt-6.1-terra` | $1.00 / $0.05 / $5.00 | 빠르고 효율적, 자연스러운 글쓰기 |
+| 구형 Sol | `gpt-6-sol` | $2.00 / $0.20 / $10.00 | 문서가 `gpt-6.1-sol`을 안내 |
+| 최상위 | `gpt-6-astra` | $10.00 / $1.00 / $50.00 | 비교 기준으로 쓰면 절감액이 부풀려 보임 |
+| 지원 종료 예정 | `gpt-5-nano`, `gpt-5-mini` | $0.05 / $0.40, $0.25 / $2.00 | **2026-12-11 종료** (최종 평가 12/8 직후) → 쓰지 않음 |
+
+- 학교 키로 `GET /v1/models`를 조회해 위 모델에 모두 접근할 수 있음을 확인했다 (10/30).
+- GPT-6 계열은 추론 모델이다. 추론 토큰은 `completion_tokens`에 들어가 출력 가격으로 청구된다.
+- Chat Completions에서 함수 호출은 `reasoning_effort: none`일 때만 된다(모델 페이지). 게이트웨이는 함수 호출을 쓰지 않는다.
+- 캐시 쓰기는 입력 가격의 1.25배다. 우리 요청은 1,024토큰보다 짧아 캐시 대상이 아니라서 비용 계산에서 뺀다.
 - Batch(비동기 대량 처리)·Flex는 표준 가격의 절반이다.
 - JSON 스키마를 따르는 출력(Structured Outputs)을 지원한다.
 - **Decisions API** (`POST /v1/decisions`, `gpt-6-luna`)
