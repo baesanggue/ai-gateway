@@ -1,0 +1,59 @@
+{
+ "model": "gemma4:12b",
+ "temperature": 0.9,
+ "seed": 1031,
+ "calls": 26,
+ "seconds": 86.4,
+ "generated": 251,
+ "kept": 246,
+ "dropped": {
+  "testset_overlap": 2,
+  "placeholder_missing": 2,
+  "near_duplicate": 1
+ },
+ "lines": 286,
+ "masked_lines": 40,
+ "kept_by_category": {
+  "faq": 18,
+  "service": 20,
+  "task_simple": 20,
+  "task_complex": 20,
+  "task_short_complex": 20,
+  "pii_maskable": 20,
+  "needs_raw": 18,
+  "pii_word_only": 20,
+  "order_number": 20,
+  "confidential": 11,
+  "risky": 19,
+  "security_benign": 20,
+  "off_topic": 20
+ },
+ "label_counts": {
+  "has_pii": {
+   "아니오": 246,
+   "예": 40
+  },
+  "is_confidential": {
+   "아니오": 273,
+   "예": 13
+  },
+  "needs_raw_value": {
+   "아니오": 40,
+   "예": 36
+  },
+  "is_risky": {
+   "아니오": 267,
+   "예": 19
+  },
+  "difficulty": {
+   "simple": 138,
+   "complex": 40
+  },
+  "intent": {
+   "faq": 18,
+   "service": 20,
+   "task": 133,
+   "off_topic": 20
+  }
+ }
+}
