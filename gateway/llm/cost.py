@@ -5,12 +5,9 @@
   게이트웨이 절감액 = Σ baseline_cost − Σ request_cost
 판단 비용(Decisions 입력 토큰)은 여기서 계산하지 않는다. 기존 방식에는 없던 비용이라 로그에 따로 남긴다(#11).
 """
-from typing import Literal
-
 from gateway.config import LLMConfig, LLMModelConfig
 from gateway.llm.client import LLMUsage
-
-Route = Literal["template", "cheap", "premium", "block"]
+from gateway.routing.policy import Route
 
 
 def request_cost(usage: LLMUsage, model: LLMModelConfig) -> float:
