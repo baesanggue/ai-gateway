@@ -81,6 +81,20 @@ class _HttpEngine:
         raise NotImplementedError
 
 
+def systemone_questions(questions: dict[str, Question]) -> dict[str, dict[str, Any]]:
+    """질문 정의 → /v1/systemone 질문 형식. 파인튜닝 학습 데이터(finetune/generate.py)도 이 함수를 써서
+    학습 때와 추론 때 질문이 글자 하나까지 같게 한다."""
+    qs = {}
+    for qid, q in questions.items():
+        body: dict[str, Any] = {"type": q.type, "instructions": q.instructions}
+        if q.type == "choice":
+            body["criteria"] = q.criteria
+        elif q.type == "score":  # 레벨 설명 배열 (0부터)
+            body["criteria"] = list(q.criteria.values())
+        qs[qid] = body
+    return qs
+
+
 class SystemOneEngine(_HttpEngine):
     """/v1/systemone (TypeSafe 형식). Ollaya는 키가 없어도 되지만 형식상 아무 값이나 보낸다."""
 
@@ -91,15 +105,7 @@ class SystemOneEngine(_HttpEngine):
         super().__init__(base_url, model, timeout, api_key, transport)
 
     def _body(self, text, questions):
-        qs = {}
-        for qid, q in questions.items():
-            body: dict[str, Any] = {"type": q.type, "instructions": q.instructions}
-            if q.type == "choice":
-                body["criteria"] = q.criteria
-            elif q.type == "score":  # 레벨 설명 배열 (0부터)
-                body["criteria"] = list(q.criteria.values())
-            qs[qid] = body
-        return {"model": self.model, "state": text, "questions": qs}
+        return {"model": self.model, "state": text, "questions": systemone_questions(questions)}
 
     def _parse(self, res, questions):
         out = {}
