@@ -91,9 +91,8 @@ CATEGORIES = [
     Category("task_complex", ALL,
              "직원이 AI에게 맡기는 복잡한 업무. 여러 조건이나 자료를 비교·분석하거나, 계획을 세우거나, 긴 문서를 써야 하는 일. 조건을 2개 이상 구체적으로 적는다.",
              {"is_risky": F, "is_confidential": F, "difficulty": 1, "intent": "task"}),
-    Category("task_short_complex", ("office", "shop", "finance"),   # 경계: 짧지만 복잡
-             "한 문장으로 짧지만 실제로는 여러 단계의 분석이나 긴 문서가 필요한 업무 요청. 25자 안팎으로 짧게 쓴다.",
-             {"is_risky": F, "is_confidential": F, "difficulty": 1, "intent": "task"}),
+    # "짧지만 복잡"(경계 사례)은 뺐다. 10/31 시범 검토에서 이 범주 문장 4개가 실제로는 단순·애매해
+    # 난이도 정답이 틀렸다(표본 50줄 중 4줄 = 8%, 기준 5% 초과). 정답이 확실한 코드 템플릿으로 따로 만든다 (#21)
     Category("pii_maskable", CUSTOMER,
              "직원이 고객의 개인정보를 넣어 맡기는 간단한 업무(안내 문자·메일 작성, 접수 확인 문구 등). 개인정보 값을 가려도 AI가 문장을 쓸 수 있는 일.",
              {"needs_raw_value": F, "is_risky": F, "is_confidential": F, "difficulty": 0, "intent": "task"},
