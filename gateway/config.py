@@ -50,6 +50,22 @@ class DecisionConfig(BaseModel):
 class RoutingConfig(BaseModel):
     min_confidence: float | None = None
     low_confidence_route: Literal["premium", "block"] = "premium"
+    # 차단 사유별 안내문. 사유 코드는 gateway/routing/policy.py의 BLOCK_PRIORITY
+    block_messages: dict[str, str] = {}
+
+
+class FAQEntry(BaseModel):
+    id: str
+    # 단어 묶음 목록. 한 묶음의 단어가 모두 들어 있으면 이 FAQ로 본다 (띄어쓰기 무시)
+    keywords: list[list[str]]
+    answer: str
+
+
+class FAQConfig(BaseModel):
+    """업종별 설정 (D13): 회사가 자기 FAQ와 정해 둔 답을 등록한다."""
+    max_chars: int = 40                 # 이보다 긴 문장은 FAQ로 보지 않는다
+    exclude_words: list[str] = []       # 업무 요청 표현이 있으면 FAQ로 보지 않는다 (띄어쓰기 무시)
+    entries: list[FAQEntry] = []
 
 
 class LLMModelConfig(BaseModel):
@@ -81,6 +97,7 @@ class AppConfig(BaseModel):
     gateway: GatewayConfig = GatewayConfig()
     decision: DecisionConfig
     routing: RoutingConfig = RoutingConfig()
+    faq: FAQConfig = FAQConfig()
     llm: LLMConfig
     masking: MaskingConfig
     storage: StorageConfig
