@@ -300,3 +300,14 @@ def test_history_check_failure_follows_on_error_route(tmp_path):
         row = log.get(r.headers["x-gateway-request-id"])
     assert (row["route"], row["reasons"]) == ("cheap", ["cloud_error"])
     assert row["judgments"]["cloud_history"]["error"].startswith("OpenAIDecisionsEngine")
+
+
+def test_strict_cloud_failure_never_reaches_llm(tmp_path):
+    """엄격 수준: 판단을 일부러 실패시켜도 위험 판단 없이 LLM에 닿지 않는다."""
+    up = FakeUpstream(cloud_error=True)
+    with gateway(tmp_path, up, masker=FakeMasker(), level="strict") as (client, log):
+        r = ask(client, "회의 공지 짧게 써 줘")
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert (row["route"], row["reasons"]) == ("block", ["cloud_error"])
+    assert r.json()["choices"][0]["finish_reason"] == "content_filter"
+    assert up.bodies("/v1/chat/completions") == []

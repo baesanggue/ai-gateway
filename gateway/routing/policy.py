@@ -92,7 +92,7 @@ def decide_without_masking(pii_found: bool, local: JudgeResult, block_messages: 
 def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
     """클라우드 판단 뒤 경로를 정한다 (D12, D16).
 
-    1. 판단 실패 → on_error_route (기본 저렴한 모델)
+    1. 판단 실패 → 기본 수준은 on_error_route(기본 저렴한 모델), 엄격 수준은 차단 (_on_cloud_error)
     2. 차단 사유를 모두 모은다: 위험, 원본 필요, 위험·원본 필요 판단 거부(on_refusal=block), 무관
     3. 난이도·의도 판단 거부 → on_routing_refusal (기본 고성능, "애매하면 고성능")
     4. 난이도·의도 신뢰도가 min_confidence 미만 → low_confidence_route (기본 고성능)
@@ -101,7 +101,7 @@ def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
     c = cfg.decision.cloud
     msgs = cfg.routing.block_messages
     if not cloud.available:
-        return _go(c.on_error_route, ["cloud_error"], msgs)
+        return _on_cloud_error(cfg)
 
     j = cloud.judgments
     intent = j.get("intent")
@@ -138,12 +138,21 @@ def apply_history_risk(decision: Decision, history: JudgeResult, cfg: AppConfig)
     c = cfg.decision.cloud
     j = history.judgments.get("is_risky")
     if not history.available or j is None:
-        return _go(c.on_error_route, ["cloud_error"], cfg.routing.block_messages)
+        return _on_cloud_error(cfg)
     extra = ["risky"] if _yes(j) else ["refused"] if _refused(j) and c.on_refusal == "block" else []
     if not extra:
         return decision
     base = decision.reasons if decision.route == "block" else []
     return _block(base + extra, cfg.routing.block_messages)
+
+
+def _on_cloud_error(cfg: AppConfig) -> Decision:
+    """클라우드 판단(또는 이전 대화 위험 판단)이 실패했을 때 (11/01 결정, D12 보완).
+    - 기본 수준: on_error_route (기본 저렴한 모델). 판단 API가 잠깐 안 돼도 서비스는 돈다 (가용성 우선, D12)
+    - 엄격·완전 로컬 수준: 차단. 위험 판단 없이 LLM에 보내지 않는다. 공격자가 입력을 길게 만들어 판단을 일부러
+      실패시키는 우회를 막는다. 로컬 판단 실패를 막는 것(#10)과 같은 원칙이다"""
+    route = "block" if cfg.security_level in ("strict", "local") else cfg.decision.cloud.on_error_route
+    return _go(route, ["cloud_error"], cfg.routing.block_messages)
 
 
 def _norm(text: str) -> str:

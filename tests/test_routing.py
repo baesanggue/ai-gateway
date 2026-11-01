@@ -193,3 +193,18 @@ def test_history_risk_blocks_and_keeps_every_reason(cfg):
     cfg.decision.cloud.on_error_route = "cheap"
     clean = judged("cloud_history", noul("is_risky", False))
     assert apply_history_risk(Decision("cheap", ["simple"]), clean, cfg).route == "cheap"
+
+
+# ── 클라우드 판단 실패: 기본은 가용성, 엄격은 차단 (11/01 결정) ──
+
+@pytest.mark.parametrize("level, route", [("basic", "cheap"), ("strict", "block"), ("local", "block")])
+def test_cloud_failure_blocks_only_in_strict(cfg, level, route):
+    from gateway.routing.policy import Decision, apply_history_risk
+    cfg.security_level = level
+    failed = JudgeResult("cloud", "test-model", error="ReadTimeout")
+    d = decide_after_cloud(failed, cfg)
+    assert (d.route, d.reasons) == (route, ["cloud_error"])
+    if route == "block":
+        assert d.message == cfg.routing.block_messages["cloud_error"]
+    history_failed = JudgeResult("cloud_history", "test-model", error="ReadTimeout")
+    assert apply_history_risk(Decision("premium", ["complex"]), history_failed, cfg).route == route
