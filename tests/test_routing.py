@@ -186,6 +186,10 @@ def test_history_risk_blocks_and_keeps_every_reason(cfg):
     assert apply_history_risk(Decision("cheap", ["simple"]), judged("cloud_history", refused("is_risky")),
                               cfg).reasons == ["refused"]
     failed = JudgeResult("cloud_history", "test-model", error="ReadTimeout")
-    assert apply_history_risk(Decision("premium", ["complex"]), failed, cfg).route == "premium"
+    d = apply_history_risk(Decision("premium", ["complex"]), failed, cfg)     # 그냥 통과시키지 않는다
+    assert (d.route, d.reasons) == ("cheap", ["cloud_error"])                 # on_error_route: cheap
+    cfg.decision.cloud.on_error_route = "block"
+    assert apply_history_risk(Decision("premium", ["complex"]), failed, cfg).route == "block"
+    cfg.decision.cloud.on_error_route = "cheap"
     clean = judged("cloud_history", noul("is_risky", False))
     assert apply_history_risk(Decision("cheap", ["simple"]), clean, cfg).route == "cheap"

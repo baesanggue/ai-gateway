@@ -7,9 +7,12 @@
   LLM에는 대화 전체가 가므로 그 전부를 봐야 한다
 - 모든 경로가 요청 로그를 남긴다. 로그 저장이 실패해도 응답은 돌려준다. 로그에는 가명화된 문장만 들어간다 (#11)
 """
+import hashlib
 import logging
+import threading
 import time
-from dataclasses import dataclass, field
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 
 from gateway.config import Settings
 from gateway.decision.service import DecisionService, JudgeResult
@@ -21,6 +24,7 @@ from gateway.routing.policy import (Decision, apply_history_risk, decide_after_c
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
+HISTORY_CACHE_SIZE = 256
 
 
 @dataclass
@@ -51,6 +55,8 @@ class Gateway:
         self.llm = llm
         self.log = log
         self.masker = masker or UnavailableMasker()
+        self._history_cache: OrderedDict[str, JudgeResult] = OrderedDict()   # 해시 → 위험 판단 (메모리에만)
+        self._cache_lock = threading.Lock()                                  # FastAPI는 요청을 여러 스레드에서 처리한다
 
     @classmethod
     def from_settings(cls, settings: Settings, transport=None, masker: Masker | None = None,
@@ -85,9 +91,9 @@ class Gateway:
             trace.judges.append(cloud)
             decision = decide_after_cloud(cloud, cfg)
             # LLM에는 대화 전체가 간다. 앞쪽 대화·도구 결과에 숨긴 인젝션도 위험 판단을 거친다 (단발 요청은 추가 호출 없음)
-            history = _untrusted_history(masked.messages)
+            history = _untrusted_history(masked.messages, cfg.decision.cloud.check_system_messages)
             if history and decision.route != "block":
-                hist = self.decision.judge_history_risk(history)
+                hist = self._judge_history(history)
                 trace.judges.append(hist)
                 decision = apply_history_risk(decision, hist, cfg)
 
@@ -104,6 +110,24 @@ class Gateway:
             return self._finish(trace, decision, t0, "", "stop", error=str(e))
         text = self.masker.restore(result.text, masked.mapping)
         return self._finish(trace, decision, t0, text, result.finish_reason, result=result)
+
+    def _judge_history(self, text: str) -> JudgeResult:
+        """이전 대화 위험 판단. 챗봇은 매번 같은 system 지시문을 보내므로, 같은 내용(해시)은 결과를 기억해 다시 묻지 않는다.
+        성공한 판단만 기억하고, 기억한 결과를 쓸 때는 지연·토큰을 0으로 남긴다 (실제로 부르지 않았다)."""
+        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        with self._cache_lock:
+            hit = self._history_cache.get(key)
+            if hit is not None:
+                self._history_cache.move_to_end(key)
+        if hit is not None:
+            return replace(hit, latency_ms=0.0, input_tokens=0)
+        result = self.decision.judge_history_risk(text)
+        if result.available:
+            with self._cache_lock:
+                self._history_cache[key] = result
+                if len(self._history_cache) > HISTORY_CACHE_SIZE:
+                    self._history_cache.popitem(last=False)
+        return result
 
     def _finish(self, trace: _Trace, decision: Decision, t0: float, text: str | None, finish_reason: str,
                 result: LLMResult | None = None, error: str | None = None) -> GatewayReply:
@@ -150,9 +174,11 @@ def _last_user(messages: list[dict[str, str]]) -> str:
     return messages[_last_user_index(messages)]["content"]
 
 
-def _untrusted_history(messages: list[dict[str, str]]) -> str:
-    """마지막 사용자 메시지를 뺀 나머지 중 회사가 쓰지 않은 내용: 이전 사용자 대화, 도구 결과, 이전 답변.
-    system·developer는 회사가 쓴 지시문이라 뺀다. 거기 있는 '보안' 같은 말이 오탐을 내면 모든 요청이 막힌다."""
+def _untrusted_history(messages: list[dict[str, str]], include_system: bool = True) -> str:
+    """마지막 사용자 메시지를 뺀 나머지: 이전 사용자 대화, 도구 결과, 이전 답변, system·developer 지시문.
+    system·developer도 클라이언트가 보내는 값이라 기본으로 넣는다. 직원이 직접 쓰는 도구라면 마음대로 바꿀 수 있다.
+    회사가 모든 클라이언트를 통제할 때만 include_system=False(설정 check_system_messages)로 뺀다."""
     last = _last_user_index(messages)
+    skip = () if include_system else ("system", "developer")
     return "\n".join(m["content"] for i, m in enumerate(messages)
-                     if i != last and m["role"] not in ("system", "developer") and m["content"])
+                     if i != last and m["role"] not in skip and m["content"])

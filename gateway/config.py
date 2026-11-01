@@ -32,6 +32,9 @@ class CloudDecisionConfig(BaseModel):
     on_refusal: Literal["block", "premium", "cheap"] = "block"            # 위험·원본 필요 질문의 거부
     on_routing_refusal: Literal["block", "premium", "cheap"] = "premium"  # 난이도·의도 질문의 거부
     on_error_route: Literal["block", "premium", "cheap"] = "cheap"
+    # 이전 대화 위험 판단에 클라이언트가 보낸 system·developer 메시지도 넣는다 (#12 보안 검토).
+    # 회사가 모든 클라이언트를 통제하고 지시문 오탐이 문제가 될 때만 false로 끈다
+    check_system_messages: bool = True
 
 
 class DecisionConfig(BaseModel):

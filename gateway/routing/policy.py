@@ -132,10 +132,14 @@ def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
 
 
 def apply_history_risk(decision: Decision, history: JudgeResult, cfg: AppConfig) -> Decision:
-    """이전 대화·도구 결과의 위험 판단을 합친다. 위험(또는 위험 판단 거부, on_refusal=block)이면 차단하고
-    사유는 모두 남긴다. 판단이 실패하면 클라우드 판단 실패와 같이 원래 결정을 따른다(로그에는 오류가 남는다)."""
+    """이전 대화·도구 결과·system 지시문의 위험 판단을 합친다. 위험(또는 위험 판단 거부, on_refusal=block)이면
+    차단하고 사유는 모두 남긴다. 판단이 실패하거나 답이 없으면 클라우드 판단 실패와 같이 on_error_route를 따른다.
+    그냥 통과시키면 긴 입력으로 판단을 일부러 실패시켜 우회할 수 있다 (#12 보안 검토)."""
+    c = cfg.decision.cloud
     j = history.judgments.get("is_risky")
-    extra = ["risky"] if _yes(j) else ["refused"] if _refused(j) and cfg.decision.cloud.on_refusal == "block" else []
+    if not history.available or j is None:
+        return _go(c.on_error_route, ["cloud_error"], cfg.routing.block_messages)
+    extra = ["risky"] if _yes(j) else ["refused"] if _refused(j) and c.on_refusal == "block" else []
     if not extra:
         return decision
     base = decision.reasons if decision.route == "block" else []

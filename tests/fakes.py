@@ -50,7 +50,7 @@ class FakeUpstream:
     바꾸고 싶은 판단만 local={...}, cloud={...}로 준다. *_error는 그 상위 서버가 실패하게 한다."""
 
     def __init__(self, local=None, cloud=None, history=None, reply="네, 안내해 드리겠습니다.", local_error=False,
-                 cloud_error=False, chat_status=200):
+                 cloud_error=False, history_error=False, chat_status=200):
         self.local = {"has_pii": noul(0.01), "is_confidential": noul(0.01)} | (local or {})
         self.cloud = {"needs_raw_value": predicate("needs_raw_value", 0.0), "is_risky": predicate("is_risky", 0.0),
                       "difficulty": difficulty(0.01),
@@ -59,6 +59,7 @@ class FakeUpstream:
         self.history = {"is_risky": predicate("is_risky", 0.0)} | (history or {})
         self.reply = reply
         self.local_error, self.cloud_error, self.chat_status = local_error, cloud_error, chat_status
+        self.history_error = history_error
         self.requests: list[httpx.Request] = []
 
     def bodies(self, path):
@@ -84,6 +85,8 @@ class FakeUpstream:
             if self.cloud_error:
                 raise httpx.ReadTimeout("timed out", request=request)
             names = [q["name"] for q in body["questions"]]
+            if names == ["is_risky"] and self.history_error:
+                raise httpx.ReadTimeout("timed out", request=request)
             answers = self.history if names == ["is_risky"] else self.cloud
             return httpx.Response(200, json={"model": "gpt-6-luna", "usage": {"input_tokens": 150},
                                              "answers": [answers[n] for n in names]})

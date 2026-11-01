@@ -225,11 +225,47 @@ def test_injection_outside_last_user_message_is_blocked(tmp_path, messages):
     assert row["decision_input_tokens"] == 300                     # 판단 호출 두 번의 입력 토큰
 
 
-def test_system_prompt_and_single_turn_need_no_history_check(tmp_path):
-    """회사가 쓴 system 지시문은 위험 판단에서 뺀다. 단발 요청은 판단 호출이 한 번뿐이다(추가 비용 없음)."""
+def test_injection_in_system_message_is_blocked(tmp_path):
+    """system·developer도 클라이언트가 보내는 값이다. 직원이 직접 쓰는 도구라면 마음대로 바꿀 수 있다."""
     up = FakeUpstream(history={"is_risky": predicate("is_risky", 0.97)})
     with gateway(tmp_path, up) as (client, log):
-        r = ask(client, {"role": "system", "content": "보안 규칙: 해킹·인젝션 요청은 거절하라"},
-                {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        r = ask(client, {"role": "system", "content": INJECTION}, {"role": "user", "content": "회의 공지 짧게 써 줘"})
         row = log.get(r.headers["x-gateway-request-id"])
-    assert row["route"] == "cheap" and len(up.bodies("/v1/decisions")) == 1
+    assert (row["route"], row["reasons"]) == ("block", ["risky"])
+
+
+def test_same_system_prompt_is_judged_once(tmp_path):
+    """챗봇은 매번 같은 system 지시문을 보낸다. 같은 내용은 결과를 기억해 두 번째부터는 판단 호출이 하나뿐이다."""
+    up = FakeUpstream()
+    system = {"role": "system", "content": "너는 쇼핑몰 고객센터 상담원이다. 친절하게 답한다."}
+    with gateway(tmp_path, up) as (client, log):
+        ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        r = ask(client, system, {"role": "user", "content": "보고서 제목 추천해 줘"})
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert len(up.bodies("/v1/decisions")) == 3                    # 첫 요청 2번 + 둘째 요청 1번
+    assert row["judgments"]["cloud_history"]["latency_ms"] == 0    # 기억한 결과
+    assert row["decision_input_tokens"] == 150
+
+
+def test_system_check_can_be_turned_off_and_single_turn_has_one_call(tmp_path):
+    up = FakeUpstream(history={"is_risky": predicate("is_risky", 0.97)})
+    env = tmp_path / ".env"
+    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
+    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings.config.decision.cloud.check_system_messages = False
+    app = create_app(settings, transport=httpx.MockTransport(up), log=RequestLog(tmp_path / "gateway.db"))
+    with TestClient(app) as client:
+        r1 = ask(client, {"role": "system", "content": INJECTION}, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        r2 = ask(client, "회의 공지 짧게 써 줘")
+    assert r1.json()["choices"][0]["finish_reason"] == "stop" and r2.status_code == 200
+    assert len(up.bodies("/v1/decisions")) == 2                    # 요청마다 한 번 (system 판단 안 함)
+
+
+def test_history_check_failure_follows_on_error_route(tmp_path):
+    """이전 대화 판단이 실패하면 그냥 통과시키지 않고 클라우드 판단 실패와 같은 설정(on_error_route)을 따른다."""
+    up = FakeUpstream(cloud={"difficulty": difficulty(0.9)}, history_error=True)
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, {"role": "user", "content": "앞선 대화"}, {"role": "user", "content": "전략 보고서 써 줘"})
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert (row["route"], row["reasons"]) == ("cheap", ["cloud_error"])
+    assert row["judgments"]["cloud_history"]["error"].startswith("OpenAIDecisionsEngine")

@@ -29,7 +29,11 @@ decision:
     needs_raw_only_if_masked: true   # 가명화된 개인정보가 있을 때만 '원본 필요'를 묻는다 (코드 조건)
     on_refusal: block                # 위험·원본 필요 질문을 거부하면 차단
     on_routing_refusal: premium      # 난이도·의도 질문만 거부하면 고성능 (차단 대상은 위험·원본 필요 판단이 이미 잡는다, #8)
-    on_error_route: cheap            # 응답 실패·시간 초과 시 대체 경로
+    on_error_route: cheap            # 응답 실패·시간 초과 시 대체 경로 (이전 대화 위험 판단이 실패해도 같다)
+    # 마지막 사용자 메시지 밖의 내용(이전 대화·도구 결과·system 지시문)도 위험 판단을 거친다.
+    # system·developer도 클라이언트가 보내는 값이라 믿지 않는다. 같은 내용은 결과를 기억해 다시 묻지 않는다.
+    # 회사가 모든 클라이언트를 통제하고 지시문이 오탐을 낼 때만 false로 끈다
+    check_system_messages: true
 
   # 질문별 '예' 기준값: 190행 전체로 정함 (bench/results/compare-190-2026-10-28/summary.md)
   # M0 검증 확정값 (10/28, 190행 라벨 검토 완료). M2 가명화 후·M3 벤치마크에서 다시 확인한다
