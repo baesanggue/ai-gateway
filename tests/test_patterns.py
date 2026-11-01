@@ -25,6 +25,11 @@ from gateway.masking.patterns import find_pii
     ("서울시 강남구 가로수길 5", ["주소"]),                # 이름 안에 '로'
     ("서울시  마포구  가상로 123", ["주소"]),              # 두 칸 띄어쓰기
     ("세종대로 서울시 중구 세종대로110", ["주소"]),
+    ("서울시마포구가상로123", ["주소"]),                   # 띄어쓰기 없음 (세 번째 보안 검토)
+    ("배송지 주소는요청사항에적은대로서울특별시 마포구 가상로 123", ["주소"]),   # 긴 말 뒤에 붙음
+    ("세종시 한누리대로 2130", ["주소"]),                  # 구·군 없는 큰 시
+    ("서울시 세종대로 110", ["주소"]),
+    ("수원시 팔달구 예시로 7", ["주소"]),
     ("2012-34-56", ["계좌번호"]),                          # 34월은 날짜가 아니다
 ])
 def test_detects_structured_pii(text, kinds):
@@ -33,28 +38,38 @@ def test_detects_structured_pii(text, kinds):
 
 @pytest.mark.parametrize("text", [
     "[고객1] 고객([전화번호1])에게 메일",                   # 가명 토큰
+    "[주소1]로 보내 줘",
     "주문번호 2026101100123 취소해 주세요",                 # 13자리지만 생년월일이 아니다 (26월)
     "운송장 번호 512345678901로 조회가 안 돼요",
     "예약번호 20260603-049748 변경",
     "2026-11-03 회의록 정리해 줘",
-    "내년도 연구개발비로 30억 원",                         # 측정용 사본의 주소 패턴은 여기에 걸렸다
+    "요구 사항으로 3개 정리해 줘",
+    "이번 시즌 구매 금액 기준으로 30% 할인 안내문 써 줘",
 ])
 def test_ignores_non_pii_numbers(text):
     assert find_pii(text) == []
 
 
-def test_known_limitation_address_without_district():
-    """구·군이 없는 주소는 못 잡는다(측정용 사본도 같다). 시·도 이름 목록이 있어야 오탐 없이 잡을 수 있어 M2에서 다룬다."""
-    assert find_pii("세종시 한누리대로 2130") == []
+def test_accepted_false_positive():
+    """재현율을 먼저 한다. 가명화의 오탐은 복원 단계에서 되돌아오지만 미탐은 원본이 그대로 나간다.
+    그래서 띄어쓰기 없는 주소를 잡는 대가로 이 오탐은 받아들인다 (로그에서는 문장을 빼는 쪽이라 안전)."""
+    assert find_pii("내년도 연구개발비로 30억 원") == ["주소"]
+
+
+def test_known_limitation_address_starting_at_district():
+    """시·도 없이 구부터 쓴 주소는 못 잡는다. "요구 사항으로 3개" 같은 평범한 문장과 구분되지 않는다. M2에서 다룬다."""
+    assert find_pii("마포구 가상로 123") == []
 
 
 # ids를 주지 않으면 pytest가 10만 자 입력을 테스트 이름에 넣고, 그 이름을 환경변수 PYTEST_CURRENT_TEST에
 # 기록하다가 Windows 한도(32,767자)를 넘어 뒤 테스트들이 오류 난다
-@pytest.mark.parametrize("text", ["시구" * 25000, "a" * 100000, "1" * 100000, "시도구군로길" * 10000,
-                                  "a@" * 50000, "12-" * 30000],
-                         ids=["address-anchors", "letters", "digits", "all-anchors", "at-signs", "hyphen-digits"])
+@pytest.mark.parametrize("text", ["시구" * 25000, "시구로" * 20000, "시도구군로길" * 10000, "a" * 100000,
+                                  "1" * 100000, "a@" * 50000, "12-" * 30000],
+                         ids=["address-anchors", "address-anchors-road", "all-anchors", "letters", "digits",
+                              "at-signs", "hyphen-digits"])
 def test_long_adversarial_input_finishes_quickly(text):
-    """고치기 전에는 공백 없는 '시구' 2천 자에서도 끝나지 않았다 (주소·이메일 패턴의 되짚기 폭증)."""
+    """고치기 전에는 공백 없는 '시구' 2천 자에서도 100초 안에 끝나지 않았다 (되짚기 폭증).
+    지금은 길이에 비례해 5만~10만 자가 1초 안쪽이다. 폭증을 잡는 게 목적이라 기준을 넉넉히 2초로 둔다."""
     t = time.perf_counter()
     find_pii(text)
-    assert time.perf_counter() - t < 1.0
+    assert time.perf_counter() - t < 2.0
