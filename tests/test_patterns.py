@@ -21,6 +21,10 @@ from gateway.masking.patterns import find_pii
     ("환불 계좌 110-123-456789", ["계좌번호"]),
     ("서울시 마포구 가상로 123, 101동 1001호", ["주소"]),
     ("경기도 수원시 새솔구 예시길 12", ["주소"]),
+    ("서울시 구로구 디지털로 300", ["주소"]),              # 이름 안에 '구' (11/01 두 번째 보안 검토)
+    ("서울시 강남구 가로수길 5", ["주소"]),                # 이름 안에 '로'
+    ("서울시  마포구  가상로 123", ["주소"]),              # 두 칸 띄어쓰기
+    ("세종대로 서울시 중구 세종대로110", ["주소"]),
     ("2012-34-56", ["계좌번호"]),                          # 34월은 날짜가 아니다
 ])
 def test_detects_structured_pii(text, kinds):
@@ -33,14 +37,15 @@ def test_detects_structured_pii(text, kinds):
     "운송장 번호 512345678901로 조회가 안 돼요",
     "예약번호 20260603-049748 변경",
     "2026-11-03 회의록 정리해 줘",
+    "내년도 연구개발비로 30억 원",                         # 측정용 사본의 주소 패턴은 여기에 걸렸다
 ])
 def test_ignores_non_pii_numbers(text):
     assert find_pii(text) == []
 
 
-def test_known_false_positive_is_documented():
-    """주소 패턴이 넓어 평범한 문장에 걸린다. 로그 안전장치에서는 문장을 빼는 쪽이라 안전하고, M2에서 좁힌다."""
-    assert find_pii("내년도 연구개발비로 30억 원") == ["주소"]
+def test_known_limitation_address_without_district():
+    """구·군이 없는 주소는 못 잡는다(측정용 사본도 같다). 시·도 이름 목록이 있어야 오탐 없이 잡을 수 있어 M2에서 다룬다."""
+    assert find_pii("세종시 한누리대로 2130") == []
 
 
 # ids를 주지 않으면 pytest가 10만 자 입력을 테스트 이름에 넣고, 그 이름을 환경변수 PYTEST_CURRENT_TEST에
