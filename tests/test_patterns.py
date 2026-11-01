@@ -1,0 +1,55 @@
+"""개인정보 정규식 검사 (#11 보안 검토). 잡아야 할 것, 잡으면 안 되는 것, 긴 입력에서 멈추지 않는지."""
+import time
+
+import pytest
+
+from gateway.masking.patterns import find_pii
+
+
+@pytest.mark.parametrize("text, kinds", [
+    ("김민수 고객(010-1234-5678)에게 메일", ["전화번호"]),
+    ("01012345678로 연락 주세요", ["전화번호"]),          # 하이픈 없는 휴대전화
+    ("010.1234.5678", ["전화번호"]),
+    ("010 1234 5678", ["전화번호"]),
+    ("02-123-4567", ["전화번호"]),
+    ("900101-1234567로 나이 계산", ["주민번호"]),
+    ("9001011234567로 나이 계산", ["주민번호"]),          # 하이픈 없는 주민번호
+    ("4111-1111-1111-1111 승인 실패", ["카드번호"]),
+    ("4111111111111111 승인 실패", ["카드번호"]),         # 하이픈 없는 카드번호
+    ("4111 1111 1111 1111", ["카드번호"]),
+    ("jiwoo.han@example.com", ["이메일"]),
+    ("환불 계좌 110-123-456789", ["계좌번호"]),
+    ("서울시 마포구 가상로 123, 101동 1001호", ["주소"]),
+    ("경기도 수원시 새솔구 예시길 12", ["주소"]),
+    ("2012-34-56", ["계좌번호"]),                          # 34월은 날짜가 아니다
+])
+def test_detects_structured_pii(text, kinds):
+    assert find_pii(text) == kinds
+
+
+@pytest.mark.parametrize("text", [
+    "[고객1] 고객([전화번호1])에게 메일",                   # 가명 토큰
+    "주문번호 2026101100123 취소해 주세요",                 # 13자리지만 생년월일이 아니다 (26월)
+    "운송장 번호 512345678901로 조회가 안 돼요",
+    "예약번호 20260603-049748 변경",
+    "2026-11-03 회의록 정리해 줘",
+])
+def test_ignores_non_pii_numbers(text):
+    assert find_pii(text) == []
+
+
+def test_known_false_positive_is_documented():
+    """주소 패턴이 넓어 평범한 문장에 걸린다. 로그 안전장치에서는 문장을 빼는 쪽이라 안전하고, M2에서 좁힌다."""
+    assert find_pii("내년도 연구개발비로 30억 원") == ["주소"]
+
+
+# ids를 주지 않으면 pytest가 10만 자 입력을 테스트 이름에 넣고, 그 이름을 환경변수 PYTEST_CURRENT_TEST에
+# 기록하다가 Windows 한도(32,767자)를 넘어 뒤 테스트들이 오류 난다
+@pytest.mark.parametrize("text", ["시구" * 25000, "a" * 100000, "1" * 100000, "시도구군로길" * 10000,
+                                  "a@" * 50000, "12-" * 30000],
+                         ids=["address-anchors", "letters", "digits", "all-anchors", "at-signs", "hyphen-digits"])
+def test_long_adversarial_input_finishes_quickly(text):
+    """고치기 전에는 공백 없는 '시구' 2천 자에서도 끝나지 않았다 (주소·이메일 패턴의 되짚기 폭증)."""
+    t = time.perf_counter()
+    find_pii(text)
+    assert time.perf_counter() - t < 1.0
