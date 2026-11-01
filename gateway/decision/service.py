@@ -36,6 +36,7 @@ class JudgeResult:
     latency_ms: float = 0.0
     input_tokens: int = 0
     error: str | None = None         # 엔진 오류(시간 초과 등). 이때 judgments는 비어 있다
+    cached: bool = False             # 엔진을 부르지 않고 기억해 둔 결과를 썼다 (파이프라인의 이전 대화 위험 판단)
 
     @property
     def available(self) -> bool:
@@ -77,6 +78,12 @@ class DecisionService:
         qids = [q for q in self.cfg.cloud.questions
                 if not (q == "needs_raw_value" and self.cfg.cloud.needs_raw_only_if_masked and not has_masked_pii)]
         return self._ask("cloud", self.cloud, masked_text, qids)
+
+    def judge_history_risk(self, masked_text: str) -> JudgeResult:
+        """마지막 사용자 메시지 밖의 내용(이전 대화·도구 결과·이전 답변)에 인젝션이 숨어 있는지 위험 질문만 묻는다.
+        LLM에는 대화 전체가 가므로, 마지막 메시지만 판단하면 앞쪽에 숨긴 지시를 놓친다 (#12 보안 검토)."""
+        qids = [q for q in self.cfg.cloud.questions if q == "is_risky"]
+        return self._ask("cloud_history", self.cloud, masked_text, qids)
 
     def _ask(self, name: str, engine: Engine, text: str, qids: list[str]) -> JudgeResult:
         if not qids:

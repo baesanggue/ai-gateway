@@ -1,19 +1,26 @@
-"""/v1/chat/completions 엔드포인트 검사 (OpenAI 호환 형식)."""
+"""/v1/chat/completions 엔드포인트 검사 (OpenAI 호환 형식). 상위 서버는 가짜(tests/fakes.py)."""
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from gateway.config import load_settings
 from gateway.main import create_app
+from gateway.storage.log import RequestLog
+from tests.fakes import TEST_KEY, FakeUpstream
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
 def client(tmp_path):
-    settings = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env")
-    return TestClient(create_app(settings))
+    env = tmp_path / ".env"
+    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
+    app = create_app(load_settings(ROOT / "config.yaml", env_file=env),
+                     transport=httpx.MockTransport(FakeUpstream()), log=RequestLog(tmp_path / "gateway.db"))
+    with TestClient(app) as c:   # with로 열어야 앱 시작(lifespan)에서 요청 처리 흐름이 만들어진다
+        yield c
 
 
 def post(client, **body):

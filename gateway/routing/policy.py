@@ -24,7 +24,7 @@ SecurityLevel = Literal["basic", "strict", "local"]
 # 확실하게 판단된 보안 사유 → 판단을 거부한 경우 → 비용 문제(무관) 순서다.
 # 로컬 단계(기밀·남은 개인정보)와 클라우드 단계 사유는 한 요청에서 같이 나오지 않는다 (로컬에서 막히면 클라우드에 안 보낸다)
 BLOCK_PRIORITY = ("risky", "needs_raw", "refused", "off_topic",
-                  "confidential", "pii_residual",
+                  "confidential", "pii_residual", "masking_unavailable",
                   "local_error", "cloud_error", "low_confidence")
 DEFAULT_BLOCK_MESSAGE = "요청을 처리할 수 없습니다."
 
@@ -77,10 +77,22 @@ def decide_after_local(local: JudgeResult, level: SecurityLevel, block_messages:
     return _block(reasons, block_messages) if reasons else None
 
 
+def decide_without_masking(pii_found: bool, local: JudgeResult, block_messages: dict[str, str]) -> Decision | None:
+    """가명화 부품이 없을 때(M1) 쓰는 임시 규칙. 보안 수준과 관계없이 적용한다.
+
+    가명화 없이 클라우드 판단·LLM으로 보내면 원본이 그대로 나간다(설계 결정 2번 위반). 그래서
+    정규식에 개인정보가 보이거나, 로컬 판단이 "개인정보 있음"이라고 하거나, 로컬 판단으로 확인하지 못하면(실패·거부) 막는다.
+    """
+    unsure = not local.available or _refused(local.judgments.get("has_pii"))
+    if pii_found or _yes(local.judgments.get("has_pii")) or unsure:
+        return _block(["masking_unavailable"], block_messages)
+    return None
+
+
 def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
     """클라우드 판단 뒤 경로를 정한다 (D12, D16).
 
-    1. 판단 실패 → on_error_route (기본 저렴한 모델)
+    1. 판단 실패 → 기본 수준은 on_error_route(기본 저렴한 모델), 엄격 수준은 차단 (_on_cloud_error)
     2. 차단 사유를 모두 모은다: 위험, 원본 필요, 위험·원본 필요 판단 거부(on_refusal=block), 무관
     3. 난이도·의도 판단 거부 → on_routing_refusal (기본 고성능, "애매하면 고성능")
     4. 난이도·의도 신뢰도가 min_confidence 미만 → low_confidence_route (기본 고성능)
@@ -89,7 +101,7 @@ def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
     c = cfg.decision.cloud
     msgs = cfg.routing.block_messages
     if not cloud.available:
-        return _go(c.on_error_route, ["cloud_error"], msgs)
+        return _on_cloud_error(cfg)
 
     j = cloud.judgments
     intent = j.get("intent")
@@ -117,6 +129,30 @@ def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
     if intent and intent.value == "faq":
         return Decision("cheap", ["faq_unregistered"])
     return Decision("cheap", ["simple"])
+
+
+def apply_history_risk(decision: Decision, history: JudgeResult, cfg: AppConfig) -> Decision:
+    """이전 대화·도구 결과·system 지시문의 위험 판단을 합친다. 위험(또는 위험 판단 거부, on_refusal=block)이면
+    차단하고 사유는 모두 남긴다. 판단이 실패하거나 답이 없으면 클라우드 판단 실패와 같이 on_error_route를 따른다.
+    그냥 통과시키면 긴 입력으로 판단을 일부러 실패시켜 우회할 수 있다 (#12 보안 검토)."""
+    c = cfg.decision.cloud
+    j = history.judgments.get("is_risky")
+    if not history.available or j is None:
+        return _on_cloud_error(cfg)
+    extra = ["risky"] if _yes(j) else ["refused"] if _refused(j) and c.on_refusal == "block" else []
+    if not extra:
+        return decision
+    base = decision.reasons if decision.route == "block" else []
+    return _block(base + extra, cfg.routing.block_messages)
+
+
+def _on_cloud_error(cfg: AppConfig) -> Decision:
+    """클라우드 판단(또는 이전 대화 위험 판단)이 실패했을 때 (11/01 결정, D12 보완).
+    - 기본 수준: on_error_route (기본 저렴한 모델). 판단 API가 잠깐 안 돼도 서비스는 돈다 (가용성 우선, D12)
+    - 엄격·완전 로컬 수준: 차단. 위험 판단 없이 LLM에 보내지 않는다. 공격자가 입력을 길게 만들어 판단을 일부러
+      실패시키는 우회를 막는다. 로컬 판단 실패를 막는 것(#10)과 같은 원칙이다"""
+    route = "block" if cfg.security_level in ("strict", "local") else cfg.decision.cloud.on_error_route
+    return _go(route, ["cloud_error"], cfg.routing.block_messages)
 
 
 def _norm(text: str) -> str:

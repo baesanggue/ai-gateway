@@ -154,3 +154,57 @@ def test_block_setting_for_routing_refusal_uses_refusal_message(cfg):
 
 def test_every_block_reason_has_a_message_in_config(cfg):
     assert set(BLOCK_PRIORITY) <= set(cfg.routing.block_messages)
+
+
+# ── 가명화가 없을 때 (M1 임시 규칙) ──────────────────────────
+
+@pytest.mark.parametrize("pii_found, local, blocked", [
+    (True, judged("local", noul("has_pii", False), noul("is_confidential", False)), True),    # 정규식에 보임
+    (False, judged("local", noul("has_pii", True), noul("is_confidential", False)), True),    # 로컬 판단이 찾음
+    (False, JudgeResult("local", "test-model", error="ConnectError"), True),                  # 확인 못 함
+    (False, judged("local", refused("has_pii"), noul("is_confidential", False)), True),       # 판단 거부
+    (False, judged("local", noul("has_pii", False), noul("is_confidential", False)), False),  # 깨끗함
+], ids=["regex", "local-judge", "local-error", "local-refused", "clean"])
+def test_without_masking_blocks_anything_that_may_contain_pii(cfg, pii_found, local, blocked):
+    from gateway.routing.policy import decide_without_masking
+    d = decide_without_masking(pii_found, local, cfg.routing.block_messages)
+    if blocked:
+        assert (d.route, d.reasons) == ("block", ["masking_unavailable"])
+        assert d.message == cfg.routing.block_messages["masking_unavailable"]
+    else:
+        assert d is None
+
+
+# ── 이전 대화·도구 결과의 위험 판단 합치기 (#12) ──────────────
+
+def test_history_risk_blocks_and_keeps_every_reason(cfg):
+    from gateway.routing.policy import Decision, apply_history_risk
+    risky = judged("cloud_history", noul("is_risky", True))
+    assert apply_history_risk(Decision("cheap", ["simple"]), risky, cfg).reasons == ["risky"]
+    off_topic = Decision("block", ["off_topic"], "x")
+    assert apply_history_risk(off_topic, risky, cfg).reasons == ["risky", "off_topic"]
+    assert apply_history_risk(Decision("cheap", ["simple"]), judged("cloud_history", refused("is_risky")),
+                              cfg).reasons == ["refused"]
+    failed = JudgeResult("cloud_history", "test-model", error="ReadTimeout")
+    d = apply_history_risk(Decision("premium", ["complex"]), failed, cfg)     # 그냥 통과시키지 않는다
+    assert (d.route, d.reasons) == ("cheap", ["cloud_error"])                 # on_error_route: cheap
+    cfg.decision.cloud.on_error_route = "block"
+    assert apply_history_risk(Decision("premium", ["complex"]), failed, cfg).route == "block"
+    cfg.decision.cloud.on_error_route = "cheap"
+    clean = judged("cloud_history", noul("is_risky", False))
+    assert apply_history_risk(Decision("cheap", ["simple"]), clean, cfg).route == "cheap"
+
+
+# ── 클라우드 판단 실패: 기본은 가용성, 엄격은 차단 (11/01 결정) ──
+
+@pytest.mark.parametrize("level, route", [("basic", "cheap"), ("strict", "block"), ("local", "block")])
+def test_cloud_failure_blocks_only_in_strict(cfg, level, route):
+    from gateway.routing.policy import Decision, apply_history_risk
+    cfg.security_level = level
+    failed = JudgeResult("cloud", "test-model", error="ReadTimeout")
+    d = decide_after_cloud(failed, cfg)
+    assert (d.route, d.reasons) == (route, ["cloud_error"])
+    if route == "block":
+        assert d.message == cfg.routing.block_messages["cloud_error"]
+    history_failed = JudgeResult("cloud_history", "test-model", error="ReadTimeout")
+    assert apply_history_risk(Decision("premium", ["complex"]), history_failed, cfg).route == route
