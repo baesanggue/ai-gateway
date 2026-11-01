@@ -21,6 +21,10 @@ dist/
 
 # 데이터베이스·로그
 *.db
+# SQLite WAL 모드가 DB 옆에 만드는 파일 (요청 로그, #11). 아직 DB에 합쳐지지 않은 기록이 들어 있다
+*.db-wal
+*.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
 *.log
