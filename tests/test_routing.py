@@ -154,3 +154,22 @@ def test_block_setting_for_routing_refusal_uses_refusal_message(cfg):
 
 def test_every_block_reason_has_a_message_in_config(cfg):
     assert set(BLOCK_PRIORITY) <= set(cfg.routing.block_messages)
+
+
+# ── 가명화가 없을 때 (M1 임시 규칙) ──────────────────────────
+
+@pytest.mark.parametrize("pii_found, local, blocked", [
+    (True, judged("local", noul("has_pii", False), noul("is_confidential", False)), True),    # 정규식에 보임
+    (False, judged("local", noul("has_pii", True), noul("is_confidential", False)), True),    # 로컬 판단이 찾음
+    (False, JudgeResult("local", "test-model", error="ConnectError"), True),                  # 확인 못 함
+    (False, judged("local", refused("has_pii"), noul("is_confidential", False)), True),       # 판단 거부
+    (False, judged("local", noul("has_pii", False), noul("is_confidential", False)), False),  # 깨끗함
+], ids=["regex", "local-judge", "local-error", "local-refused", "clean"])
+def test_without_masking_blocks_anything_that_may_contain_pii(cfg, pii_found, local, blocked):
+    from gateway.routing.policy import decide_without_masking
+    d = decide_without_masking(pii_found, local, cfg.routing.block_messages)
+    if blocked:
+        assert (d.route, d.reasons) == ("block", ["masking_unavailable"])
+        assert d.message == cfg.routing.block_messages["masking_unavailable"]
+    else:
+        assert d is None

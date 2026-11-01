@@ -24,7 +24,7 @@ SecurityLevel = Literal["basic", "strict", "local"]
 # 확실하게 판단된 보안 사유 → 판단을 거부한 경우 → 비용 문제(무관) 순서다.
 # 로컬 단계(기밀·남은 개인정보)와 클라우드 단계 사유는 한 요청에서 같이 나오지 않는다 (로컬에서 막히면 클라우드에 안 보낸다)
 BLOCK_PRIORITY = ("risky", "needs_raw", "refused", "off_topic",
-                  "confidential", "pii_residual",
+                  "confidential", "pii_residual", "masking_unavailable",
                   "local_error", "cloud_error", "low_confidence")
 DEFAULT_BLOCK_MESSAGE = "요청을 처리할 수 없습니다."
 
@@ -75,6 +75,18 @@ def decide_after_local(local: JudgeResult, level: SecurityLevel, block_messages:
     if any(_refused(j.get(q)) for q in ("is_confidential", "has_pii")):
         reasons.append("refused")
     return _block(reasons, block_messages) if reasons else None
+
+
+def decide_without_masking(pii_found: bool, local: JudgeResult, block_messages: dict[str, str]) -> Decision | None:
+    """가명화 부품이 없을 때(M1) 쓰는 임시 규칙. 보안 수준과 관계없이 적용한다.
+
+    가명화 없이 클라우드 판단·LLM으로 보내면 원본이 그대로 나간다(설계 결정 2번 위반). 그래서
+    정규식에 개인정보가 보이거나, 로컬 판단이 "개인정보 있음"이라고 하거나, 로컬 판단으로 확인하지 못하면(실패·거부) 막는다.
+    """
+    unsure = not local.available or _refused(local.judgments.get("has_pii"))
+    if pii_found or _yes(local.judgments.get("has_pii")) or unsure:
+        return _block(["masking_unavailable"], block_messages)
+    return None
 
 
 def decide_after_cloud(cloud: JudgeResult, cfg: AppConfig) -> Decision:
