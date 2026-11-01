@@ -110,6 +110,8 @@ class Secrets(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     xai_api_key: SecretStr | None = None
+    # 게이트웨이를 쓰는 서비스에 나눠 줄 키(쉼표로 여러 개). 없으면 같은 PC에서 온 요청만 받는다 (D20)
+    gateway_api_keys: SecretStr | None = None
 
 
 class Settings(BaseModel):

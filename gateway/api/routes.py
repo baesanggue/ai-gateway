@@ -1,11 +1,14 @@
 """OpenAI 호환 엔드포인트 (#7 형식, #12에서 요청 처리 흐름에 연결).
 
+- 인증(D20): GATEWAY_API_KEYS가 있으면 Bearer 키 필수, 없으면 같은 PC에서 온 요청만 받는다 (authorize)
 - 응답 본문은 OpenAI 형식 그대로 둔다(설계 결정 4번). 판단 과정은 본문에 넣지 않고,
   헤더 x-gateway-request-id로 요청 로그의 그 줄을 찾게 한다 (데모·관리 화면은 로그를 읽는다)
 - 차단: HTTP 200 + 안내문을 답변으로 + finish_reason "content_filter". 기존 챗봇은 안내문을 그대로 보여 주고,
   프로그램은 차단됐다는 것을 알 수 있다
 - LLM 오류: OpenAI 형식 502. 메시지에 상위 오류 내용을 넣지 않는다 (로그에는 오류 code가 남는다)
 """
+import hmac
+import ipaddress
 from typing import get_args
 
 from fastapi import APIRouter, Request
@@ -32,8 +35,43 @@ def openai_error(status: int, message: str, param: str | None = None, code: str 
     return JSONResponse(status_code=status, content=body.model_dump())
 
 
+def authorize(request: Request) -> JSONResponse | None:
+    """게이트웨이 키 확인 (D20). 통과하면 None, 막으면 OpenAI 형식 401.
+
+    게이트웨이는 회사의 OpenAI 키로 LLM을 부른다. 아무나 닿을 수 있으면 그 키를 대신 써 주는 열린 프록시가 된다.
+    - .env에 GATEWAY_API_KEYS가 있으면 모든 요청에 Authorization: Bearer <키>를 요구한다 (상수 시간 비교)
+    - 없으면 같은 PC(루프백)에서 온 요청만 받는다. 시연·개발은 base URL만 바꾸면 되고, 외부에 열려면 키가 필요하다
+    클라이언트가 보낸 키는 상위(OpenAI)로 넘기지 않고 로그에도 남기지 않는다.
+    """
+    keys = request.app.state.settings.secrets.gateway_api_keys
+    valid = [k.strip() for k in (keys.get_secret_value() if keys else "").split(",") if k.strip()]
+    if not valid:
+        if _is_local(request.client.host if request.client else ""):
+            return None
+        return openai_error(401, "게이트웨이 키가 설정되지 않아 같은 PC에서 온 요청만 받습니다. "
+                                 "외부에서 쓰려면 .env에 GATEWAY_API_KEYS를 설정하세요.", code="invalid_api_key")
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    matched = False
+    for key in valid:            # 하나 맞아도 끝까지 비교한다 (몇 번째 키와 맞았는지 시간으로 드러나지 않게)
+        matched |= hmac.compare_digest(token.encode(), key.encode())
+    return None if matched else openai_error(401, "게이트웨이 키가 올바르지 않습니다.", code="invalid_api_key")
+
+
+def _is_local(host: str) -> bool:
+    if host == "testclient":     # Starlette TestClient가 쓰는 이름. 실제 소켓 주소로는 나오지 않는다
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or (ip.version == 6 and ip.ipv4_mapped is not None and ip.ipv4_mapped.is_loopback)
+
+
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 def chat_completions(req: ChatCompletionRequest, request: Request):
+    if (denied := authorize(request)) is not None:
+        return denied
     if req.stream:
         return openai_error(400, "stream=true는 아직 지원하지 않습니다. stream=false로 보내 주세요.",
                             param="stream", code="unsupported_parameter")
