@@ -36,6 +36,7 @@ class JudgeResult:
     latency_ms: float = 0.0
     input_tokens: int = 0
     error: str | None = None         # 엔진 오류(시간 초과 등). 이때 judgments는 비어 있다
+    cached: bool = False             # 엔진을 부르지 않고 기억해 둔 결과를 썼다 (파이프라인의 이전 대화 위험 판단)
 
     @property
     def available(self) -> bool:

@@ -76,7 +76,7 @@ class RequestRecord:
 def judge_summary(result: JudgeResult) -> dict[str, Any]:
     """판단 결과를 로그용 dict로: 질문별 값·신뢰도·확률·거부 여부, 엔진 오류, 지연."""
     return {"engine": result.engine, "model": result.model, "latency_ms": round(result.latency_ms, 1),
-            "input_tokens": result.input_tokens, "error": result.error,
+            "input_tokens": result.input_tokens, "error": result.error, "cached": result.cached,
             "judgments": {q: {"value": j.value, "confidence": j.confidence, "refused": j.refused, "probs": j.probs}
                           for q, j in result.judgments.items()}}
 

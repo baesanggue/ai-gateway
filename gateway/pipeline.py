@@ -15,6 +15,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 
 from gateway.config import Settings
+from gateway.decision.questions import QUESTIONS
 from gateway.decision.service import DecisionService, JudgeResult
 from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
@@ -24,7 +25,9 @@ from gateway.routing.policy import (Decision, apply_history_risk, decide_after_c
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
-HISTORY_CACHE_SIZE = 256
+HISTORY_CACHE_SIZE = 256      # 기억할 이전 대화 위험 판단 수
+HISTORY_CACHE_TTL = 600       # 초. 지나면 다시 묻는다
+HISTORY_SAFE_MARGIN = 0.2     # 위험 확률이 기준값의 20% 이하여야 "확실히 안전"으로 기억한다
 
 
 @dataclass
@@ -55,7 +58,7 @@ class Gateway:
         self.llm = llm
         self.log = log
         self.masker = masker or UnavailableMasker()
-        self._history_cache: OrderedDict[str, JudgeResult] = OrderedDict()   # 해시 → 위험 판단 (메모리에만)
+        self._history_cache: OrderedDict[str, tuple[float, JudgeResult]] = OrderedDict()   # 해시 → (만료 시각, 판단)
         self._cache_lock = threading.Lock()                                  # FastAPI는 요청을 여러 스레드에서 처리한다
 
     @classmethod
@@ -112,19 +115,33 @@ class Gateway:
         return self._finish(trace, decision, t0, text, result.finish_reason, result=result)
 
     def _judge_history(self, text: str) -> JudgeResult:
-        """이전 대화 위험 판단. 챗봇은 매번 같은 system 지시문을 보내므로, 같은 내용(해시)은 결과를 기억해 다시 묻지 않는다.
-        성공한 판단만 기억하고, 기억한 결과를 쓸 때는 지연·토큰을 0으로 남긴다 (실제로 부르지 않았다)."""
-        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        """이전 대화 위험 판단. 챗봇은 매번 같은 system 지시문을 보내므로, 같은 내용은 결과를 기억해 다시 묻지 않는다.
+
+        판단은 확률이라 같은 문장도 결과가 조금씩 다르다. 아무 결과나 기억하면 공격자가 같은 인젝션을 여러 번 보내다
+        한 번 나온 "안전" 판정을 고정시킬 수 있다(보안 검토: 캐시 오염). 그래서
+        - 확실한 판정만 기억한다: 위험 확률이 기준값 이상(차단)이거나 기준값 × HISTORY_SAFE_MARGIN 이하(확실히 안전)
+        - HISTORY_CACHE_TTL초가 지나면 잊는다
+        - 키에 판단 모델·기준값·질문 문장을 넣어, 설정이 바뀌면 예전 결과를 쓰지 않는다
+        기억한 결과를 쓸 때는 cached=True, 지연·토큰 0으로 남긴다 (실제로 부르지 않았다)."""
+        th = self.settings.config.decision.thresholds.get("is_risky", 0.5)
+        key = hashlib.sha256("\x00".join([self.settings.config.decision.cloud.model, str(th),
+                                          QUESTIONS["is_risky"].instructions, text]).encode("utf-8")).hexdigest()
+        now = time.monotonic()
         with self._cache_lock:
-            hit = self._history_cache.get(key)
-            if hit is not None:
+            entry = self._history_cache.get(key)
+            if entry is not None and entry[0] <= now:     # 만료
+                del self._history_cache[key]
+                entry = None
+            if entry is not None:
                 self._history_cache.move_to_end(key)
-        if hit is not None:
-            return replace(hit, latency_ms=0.0, input_tokens=0)
+        if entry is not None:
+            return replace(entry[1], latency_ms=0.0, input_tokens=0, cached=True)
         result = self.decision.judge_history_risk(text)
-        if result.available:
+        j = result.judgments.get("is_risky")
+        if result.available and j is not None and j.probs is not None and (
+                j.probs["yes"] >= th or j.probs["yes"] <= th * HISTORY_SAFE_MARGIN):
             with self._cache_lock:
-                self._history_cache[key] = result
+                self._history_cache[key] = (now + HISTORY_CACHE_TTL, result)
                 if len(self._history_cache) > HISTORY_CACHE_SIZE:
                     self._history_cache.popitem(last=False)
         return result

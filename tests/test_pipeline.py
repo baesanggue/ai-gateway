@@ -243,8 +243,39 @@ def test_same_system_prompt_is_judged_once(tmp_path):
         r = ask(client, system, {"role": "user", "content": "보고서 제목 추천해 줘"})
         row = log.get(r.headers["x-gateway-request-id"])
     assert len(up.bodies("/v1/decisions")) == 3                    # 첫 요청 2번 + 둘째 요청 1번
-    assert row["judgments"]["cloud_history"]["latency_ms"] == 0    # 기억한 결과
+    h = row["judgments"]["cloud_history"]
+    assert h["cached"] is True and h["latency_ms"] == 0            # 기억한 결과 (로그에 표시)
     assert row["decision_input_tokens"] == 150
+
+
+SYSTEM = {"role": "system", "content": "너는 쇼핑몰 고객센터 상담원이다."}
+
+
+def two_requests(tmp_path, up):
+    with gateway(tmp_path, up) as (client, log):
+        rows = [log.get(ask(client, SYSTEM, {"role": "user", "content": "회의 공지 짧게 써 줘"}).headers["x-gateway-request-id"])
+                for _ in range(2)]
+    return rows, len(up.bodies("/v1/decisions"))
+
+
+def test_borderline_safe_verdict_is_not_cached(tmp_path):
+    """캐시 오염 방지: 기준값(0.5) 근처의 '안전' 판정(0.3)은 기억하지 않고 매번 다시 묻는다.
+    같은 인젝션을 여러 번 보내다 한 번 나온 '안전'을 고정시키지 못하게 한다."""
+    rows, calls = two_requests(tmp_path, FakeUpstream(history={"is_risky": predicate("is_risky", 0.3)}))
+    assert calls == 4 and rows[1]["judgments"]["cloud_history"]["cached"] is False
+
+
+def test_risky_verdict_is_cached_and_still_blocks(tmp_path):
+    rows, calls = two_requests(tmp_path, FakeUpstream(history={"is_risky": predicate("is_risky", 0.97)}))
+    assert calls == 3 and [r["reasons"] for r in rows] == [["risky"], ["risky"]]
+    assert rows[1]["judgments"]["cloud_history"]["cached"] is True
+
+
+def test_cached_verdict_expires(tmp_path, monkeypatch):
+    import gateway.pipeline
+    monkeypatch.setattr(gateway.pipeline, "HISTORY_CACHE_TTL", -1)   # 기억하자마자 만료
+    rows, calls = two_requests(tmp_path, FakeUpstream())
+    assert calls == 4 and rows[1]["judgments"]["cloud_history"]["cached"] is False
 
 
 def test_system_check_can_be_turned_off_and_single_turn_has_one_call(tmp_path):
