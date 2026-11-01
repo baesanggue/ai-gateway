@@ -173,3 +173,19 @@ def test_without_masking_blocks_anything_that_may_contain_pii(cfg, pii_found, lo
         assert d.message == cfg.routing.block_messages["masking_unavailable"]
     else:
         assert d is None
+
+
+# ── 이전 대화·도구 결과의 위험 판단 합치기 (#12) ──────────────
+
+def test_history_risk_blocks_and_keeps_every_reason(cfg):
+    from gateway.routing.policy import Decision, apply_history_risk
+    risky = judged("cloud_history", noul("is_risky", True))
+    assert apply_history_risk(Decision("cheap", ["simple"]), risky, cfg).reasons == ["risky"]
+    off_topic = Decision("block", ["off_topic"], "x")
+    assert apply_history_risk(off_topic, risky, cfg).reasons == ["risky", "off_topic"]
+    assert apply_history_risk(Decision("cheap", ["simple"]), judged("cloud_history", refused("is_risky")),
+                              cfg).reasons == ["refused"]
+    failed = JudgeResult("cloud_history", "test-model", error="ReadTimeout")
+    assert apply_history_risk(Decision("premium", ["complex"]), failed, cfg).route == "premium"
+    clean = judged("cloud_history", noul("is_risky", False))
+    assert apply_history_risk(Decision("cheap", ["simple"]), clean, cfg).route == "cheap"

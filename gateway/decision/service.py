@@ -78,6 +78,12 @@ class DecisionService:
                 if not (q == "needs_raw_value" and self.cfg.cloud.needs_raw_only_if_masked and not has_masked_pii)]
         return self._ask("cloud", self.cloud, masked_text, qids)
 
+    def judge_history_risk(self, masked_text: str) -> JudgeResult:
+        """마지막 사용자 메시지 밖의 내용(이전 대화·도구 결과·이전 답변)에 인젝션이 숨어 있는지 위험 질문만 묻는다.
+        LLM에는 대화 전체가 가므로, 마지막 메시지만 판단하면 앞쪽에 숨긴 지시를 놓친다 (#12 보안 검토)."""
+        qids = [q for q in self.cfg.cloud.questions if q == "is_risky"]
+        return self._ask("cloud_history", self.cloud, masked_text, qids)
+
     def _ask(self, name: str, engine: Engine, text: str, qids: list[str]) -> JudgeResult:
         if not qids:
             return JudgeResult(name, engine.model)

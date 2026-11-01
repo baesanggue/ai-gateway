@@ -49,12 +49,14 @@ class FakeUpstream:
     """기본값: 개인정보·기밀 없음(로컬), 위험·원본 필요 없음·단순·이용 문의(클라우드), LLM은 고정 답변.
     바꾸고 싶은 판단만 local={...}, cloud={...}로 준다. *_error는 그 상위 서버가 실패하게 한다."""
 
-    def __init__(self, local=None, cloud=None, reply="네, 안내해 드리겠습니다.", local_error=False,
+    def __init__(self, local=None, cloud=None, history=None, reply="네, 안내해 드리겠습니다.", local_error=False,
                  cloud_error=False, chat_status=200):
         self.local = {"has_pii": noul(0.01), "is_confidential": noul(0.01)} | (local or {})
         self.cloud = {"needs_raw_value": predicate("needs_raw_value", 0.0), "is_risky": predicate("is_risky", 0.0),
                       "difficulty": difficulty(0.01),
                       "intent": intent(faq=0.1, service=0.7, task=0.1, off_topic=0.1)} | (cloud or {})
+        # 이전 대화·도구 결과의 위험 판단 (위험 질문 하나만 묻는 호출)
+        self.history = {"is_risky": predicate("is_risky", 0.0)} | (history or {})
         self.reply = reply
         self.local_error, self.cloud_error, self.chat_status = local_error, cloud_error, chat_status
         self.requests: list[httpx.Request] = []
@@ -81,8 +83,10 @@ class FakeUpstream:
         if request.url.path == "/v1/decisions":
             if self.cloud_error:
                 raise httpx.ReadTimeout("timed out", request=request)
+            names = [q["name"] for q in body["questions"]]
+            answers = self.history if names == ["is_risky"] else self.cloud
             return httpx.Response(200, json={"model": "gpt-6-luna", "usage": {"input_tokens": 150},
-                                             "answers": [self.cloud[q["name"]] for q in body["questions"]]})
+                                             "answers": [answers[n] for n in names]})
         if request.url.path == "/v1/chat/completions":
             if self.chat_status != 200:
                 return httpx.Response(self.chat_status, json={"error": {"message": "upstream", "code": "server_error"}})

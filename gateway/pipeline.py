@@ -16,8 +16,8 @@ from gateway.decision.service import DecisionService, JudgeResult
 from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
 from gateway.masking.masker import Masker, UnavailableMasker
-from gateway.routing.policy import (Decision, decide_after_cloud, decide_after_local, decide_without_masking,
-                                    match_faq)
+from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
+                                    decide_without_masking, match_faq)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,12 @@ class Gateway:
             cloud = self.decision.judge_cloud(trace.request, has_masked_pii=masked.has_pii)
             trace.judges.append(cloud)
             decision = decide_after_cloud(cloud, cfg)
+            # LLM에는 대화 전체가 간다. 앞쪽 대화·도구 결과에 숨긴 인젝션도 위험 판단을 거친다 (단발 요청은 추가 호출 없음)
+            history = _untrusted_history(masked.messages)
+            if history and decision.route != "block":
+                hist = self.decision.judge_history_risk(history)
+                trace.judges.append(hist)
+                decision = apply_history_risk(decision, hist, cfg)
 
         if decision.route == "template":
             return self._finish(trace, decision, t0, decision.message, "stop")
@@ -115,7 +121,7 @@ class Gateway:
             completion_tokens=usage.completion_tokens if usage else 0,
             reasoning_tokens=usage.reasoning_tokens if usage else 0,
             cost_usd=cost, baseline_cost_usd=baseline,
-            decision_input_tokens=sum(j.input_tokens for j in trace.judges if j.engine == "cloud"),
+            decision_input_tokens=sum(j.input_tokens for j in trace.judges if j.engine.startswith("cloud")),
             decision_latency_ms=round(sum(j.latency_ms for j in trace.judges), 1),
             total_latency_ms=round((time.perf_counter() - t0) * 1000, 1), llm_error=error)
         self._save(record)
@@ -132,9 +138,21 @@ class Gateway:
             logger.error("요청 로그 저장 실패 (%s): %s", record.id, type(e).__name__)
 
 
+def _last_user_index(messages: list[dict[str, str]]) -> int:
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i]["role"] == "user":
+            return i
+    return len(messages) - 1
+
+
 def _last_user(messages: list[dict[str, str]]) -> str:
     """판단할 요청 문장: 마지막 사용자 메시지. 없으면 마지막 메시지."""
-    for m in reversed(messages):
-        if m["role"] == "user":
-            return m["content"]
-    return messages[-1]["content"]
+    return messages[_last_user_index(messages)]["content"]
+
+
+def _untrusted_history(messages: list[dict[str, str]]) -> str:
+    """마지막 사용자 메시지를 뺀 나머지 중 회사가 쓰지 않은 내용: 이전 사용자 대화, 도구 결과, 이전 답변.
+    system·developer는 회사가 쓴 지시문이라 뺀다. 거기 있는 '보안' 같은 말이 오탐을 내면 모든 요청이 막힌다."""
+    last = _last_user_index(messages)
+    return "\n".join(m["content"] for i, m in enumerate(messages)
+                     if i != last and m["role"] not in ("system", "developer") and m["content"])
