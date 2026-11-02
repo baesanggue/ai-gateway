@@ -14,7 +14,7 @@ from typing import Protocol
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
-from gateway.masking.patterns import PATTERNS, find_pii, is_date
+from gateway.masking.patterns import PATTERNS, find_pii, is_date, normalize_text
 
 
 @dataclass
@@ -45,7 +45,7 @@ class UnavailableMasker:
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
         counts: dict[str, int] = {}
         for m in messages:
-            for kind in find_pii(m["content"]):
+            for kind in find_pii(normalize_text(m["content"])):
                 counts[kind] = counts.get(kind, 0) + 1
         return MaskResult([dict(m) for m in messages], {}, counts)
 
@@ -65,12 +65,19 @@ class RuleMasker:
       도구 결과에는 회사 DB의 고객 정보가 들어 있다
     - 입력에 이미 [고객1] 같은 글자가 있으면 그 번호는 건너뛴다. 복원할 때 사용자가 쓴 글자를 다른 값으로 바꾸지 않게
     - 이름이 다른 낱말 안에 들어 있어도 가린다(한국어는 조사가 붙어 낱말 경계를 정하기 어렵다). 사전에는 두 글자 이상만
+    - 가리기 전에 표기를 맞춘다(patterns.normalize_text: NFC, 전각 → 반각, 대시 → 하이픈). 밖으로 나가는 문장도
+      맞춘 표기다. 사전은 영문 대소문자를 구분하지 않는다 ("x-프로젝트"도 가린다)
     """
 
     available = True
 
     def __init__(self, entries: list[Entry]):
-        self.entries = sorted(entries, key=lambda e: len(e.value), reverse=True)
+        # 사전 값 전체를 정규식 하나로: 긴 값부터(같은 위치에서 "김민수진"이 "김민수"보다 먼저), 대소문자 무시
+        values = sorted({normalize_text(e.value) for e in entries}, key=len, reverse=True)
+        self.kinds = {}
+        for e in entries:
+            self.kinds.setdefault(normalize_text(e.value).casefold(), e.kind)
+        self.names = re.compile("|".join(map(re.escape, values)), re.IGNORECASE) if values else None
 
     @classmethod
     def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
@@ -78,29 +85,29 @@ class RuleMasker:
         return cls(entries)
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
-        taken = {m.group() for msg in messages for m in TOKEN.finditer(msg["content"])}
+        taken = {m.group() for msg in messages for m in TOKEN.finditer(normalize_text(msg["content"]))}
         mapping: dict[str, str] = {}
         by_value: dict[str, str] = {}
         counts: dict[str, int] = {}
         last_no: dict[str, int] = {}
 
         def token(kind: str, value: str) -> str:
-            if value not in by_value:
+            key = value.casefold()          # "X-프로젝트"와 "x-프로젝트"는 같은 값 → 같은 토큰 (처음 나온 표기로 복원)
+            if key not in by_value:
                 n = last_no.get(kind, 0) + 1
                 while f"[{kind}{n}]" in taken:
                     n += 1
                 last_no[kind] = n
-                by_value[value] = f"[{kind}{n}]"
-                mapping[by_value[value]] = value
+                by_value[key] = f"[{kind}{n}]"
+                mapping[by_value[key]] = value
                 counts[kind] = counts.get(kind, 0) + 1
-            return by_value[value]
+            return by_value[key]
 
         out = []
         for msg in messages:
-            text = msg["content"]
-            for e in self.entries:
-                if e.value in text:
-                    text = text.replace(e.value, token(e.kind, e.value))
+            text = normalize_text(msg["content"])
+            if self.names is not None:
+                text = self.names.sub(lambda m: token(self.kinds[m.group().casefold()], m.group()), text)
             for kind, pattern in PATTERNS:
                 text = pattern.sub(lambda m, k=kind: m.group() if is_date(k, m.group()) else token(k, m.group()), text)
             out.append({**msg, "content": text})

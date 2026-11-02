@@ -90,3 +90,31 @@ def test_restore_round_trip():
     answer = "[고객1] 고객님, [전화번호1]로 다시 연락드리겠습니다. [고객9]는 없는 토큰입니다."
     assert RuleMasker(ENTRIES).restore(answer, r.mapping) == \
         "김민수 고객님, 010-1234-5678로 다시 연락드리겠습니다. [고객9]는 없는 토큰입니다."
+
+
+# ── 표기 차이로 피해 가지 못하게 (#44 보안 검토) ──────────────
+
+def test_decomposed_hangul_name_is_masked():
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", "김민수 고객에게 메일 써 줘")      # 눈으로는 같지만 자모가 나뉜 표기
+    assert nfd != "김민수 고객에게 메일 써 줘"
+    assert mask(nfd).messages[0]["content"] == "[고객1] 고객에게 메일 써 줘"
+
+
+def test_dictionary_ignores_latin_case_and_keeps_one_token():
+    r = mask("x-프로젝트 일정과 X-프로젝트 예산")
+    assert r.messages[0]["content"] == "[사내1] 일정과 [사내1] 예산"
+    assert r.mapping == {"[사내1]": "x-프로젝트"}
+
+
+@pytest.mark.parametrize("text", ["010–1234–5678로 연락", "010—1234—5678로 연락", "０１０-１２３４-５６７８로 연락",
+                                  "010－1234－5678로 연락"], ids=["en-dash", "em-dash", "full-width", "full-width-hyphen"])
+def test_dash_and_full_width_variants_are_masked_as_phone(text):
+    r = mask(text)
+    assert r.messages[0]["content"] == "[전화번호1]로 연락"
+    assert r.mapping["[전화번호1]"] == "010-1234-5678"          # 표기를 맞춘 값으로 복원된다
+
+
+def test_normalization_keeps_korean_jamo():
+    """NFKC를 쓰면 ㅋㅋ·ㅠㅠ가 다른 문자(조합용 자모)로 바뀐다. NFC + 전각·대시만 맞추므로 그대로다."""
+    assert mask("ㅋㅋ 배송 언제 와요 ㅠㅠ").messages[0]["content"] == "ㅋㅋ 배송 언제 와요 ㅠㅠ"
