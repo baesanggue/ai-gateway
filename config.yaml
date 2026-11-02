@@ -116,6 +116,8 @@ llm:
 masking:
   # 사용자 사전(고객명·사내 고유명사). 실제 데이터이므로 커밋하지 않는 private/ 아래에 둔다
   user_dictionary_path: private/user_dictionary.txt
+  # 위 파일이 없으면 시연용 가상 사전을 쓰고 경고를 남긴다. 형식: 종류,값 (고객,김민수 → [고객1])
+  example_dictionary_path: config/user_dictionary.example.txt
 
 # 요청 로그 (가명화된 텍스트만 저장)
 storage:

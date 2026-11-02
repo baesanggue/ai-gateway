@@ -89,6 +89,8 @@ class LLMConfig(BaseModel):
 
 class MaskingConfig(BaseModel):
     user_dictionary_path: str
+    # 실제 사전이 없을 때 쓰는 시연용 가상 사전 (커밋됨). 쓰면 로그에 경고를 남긴다 (#44)
+    example_dictionary_path: str = "config/user_dictionary.example.txt"
 
 
 class StorageConfig(BaseModel):

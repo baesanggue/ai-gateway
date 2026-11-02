@@ -41,13 +41,18 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 _DATE = re.compile(r"(?:19|20)\d{2}-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12]\d|3[01])")
 
 
+def is_date(kind: str, value: str) -> bool:
+    """계좌번호 패턴에 걸렸지만 실제로는 날짜인 값 (가명화하지 않는다)."""
+    return kind == "계좌번호" and _DATE.fullmatch(value) is not None
+
+
 def find_pii(text: str) -> list[str]:
     """형식 있는 개인정보 값의 종류를 찾은 순서대로 돌려준다(같은 종류가 여러 번이면 여러 번).
     찾은 값은 지우고 다음 패턴을 봐서, 주민번호 하나가 계좌번호로 한 번 더 세지지 않는다."""
     found = []
     for kind, pattern in PATTERNS:
         for m in pattern.finditer(text):
-            if kind == "계좌번호" and _DATE.fullmatch(m.group()):
+            if is_date(kind, m.group()):
                 continue
             found.append(kind)
             text = text.replace(m.group(), " ")
