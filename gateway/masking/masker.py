@@ -1,4 +1,4 @@
-"""가명화 부품 (#12에서 자리를 만들고, M2에서 진짜 가명화로 바꾼다).
+"""가명화 부품 (#12에서 자리를 만들고, #44에서 규칙 가명화 RuleMasker를 기본으로 끼웠다).
 
 파이프라인은 Masker만 알고 구현은 모른다. 그래서 M2에서 부품을 바꿔 끼우면 흐름은 그대로다.
 - mask(messages): 밖으로 나갈 메시지 전체를 가명화한다 (#37: 도구 결과·대화 이력 포함).
@@ -7,10 +7,14 @@
 - available: False면 가명화를 할 수 없는 부품이다. 파이프라인은 개인정보가 보이거나 확인할 수 없는 요청을
   밖으로 보내지 않고 막는다 (routing.policy.decide_without_masking)
 """
+import re
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from gateway.masking.patterns import find_pii
+from gateway.config import MaskingConfig
+from gateway.masking.dictionary import Entry
+from gateway.masking.dictionary import load as load_dictionary
+from gateway.masking.patterns import PATTERNS, find_pii, is_date
 
 
 @dataclass
@@ -47,3 +51,61 @@ class UnavailableMasker:
 
     def restore(self, text: str, mapping: dict[str, str]) -> str:
         return text
+
+
+TOKEN = re.compile(r"\[([^\[\]\d]+)(\d+)\]")   # [고객1], [전화번호2]
+
+
+class RuleMasker:
+    """규칙 가명화 (#44): 사용자 사전 + 정규식으로 찾은 값을 [종류N] 토큰으로 바꾼다.
+
+    - 사전 먼저(긴 값부터: "김민수"보다 "김민수진"을 먼저), 그다음 정규식(patterns.PATTERNS 순서)
+    - 같은 값 = 같은 토큰. 한 요청 안에서는 메시지가 달라도 같다
+    - 메시지 전체를 가린다(#37): system·user·assistant·tool. 복원된 답변이 다음 요청의 이력으로 돌아오고,
+      도구 결과에는 회사 DB의 고객 정보가 들어 있다
+    - 입력에 이미 [고객1] 같은 글자가 있으면 그 번호는 건너뛴다. 복원할 때 사용자가 쓴 글자를 다른 값으로 바꾸지 않게
+    - 이름이 다른 낱말 안에 들어 있어도 가린다(한국어는 조사가 붙어 낱말 경계를 정하기 어렵다). 사전에는 두 글자 이상만
+    """
+
+    available = True
+
+    def __init__(self, entries: list[Entry]):
+        self.entries = sorted(entries, key=lambda e: len(e.value), reverse=True)
+
+    @classmethod
+    def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
+        entries, _, _ = load_dictionary(cfg)
+        return cls(entries)
+
+    def mask(self, messages: list[dict[str, str]]) -> MaskResult:
+        taken = {m.group() for msg in messages for m in TOKEN.finditer(msg["content"])}
+        mapping: dict[str, str] = {}
+        by_value: dict[str, str] = {}
+        counts: dict[str, int] = {}
+        last_no: dict[str, int] = {}
+
+        def token(kind: str, value: str) -> str:
+            if value not in by_value:
+                n = last_no.get(kind, 0) + 1
+                while f"[{kind}{n}]" in taken:
+                    n += 1
+                last_no[kind] = n
+                by_value[value] = f"[{kind}{n}]"
+                mapping[by_value[value]] = value
+                counts[kind] = counts.get(kind, 0) + 1
+            return by_value[value]
+
+        out = []
+        for msg in messages:
+            text = msg["content"]
+            for e in self.entries:
+                if e.value in text:
+                    text = text.replace(e.value, token(e.kind, e.value))
+            for kind, pattern in PATTERNS:
+                text = pattern.sub(lambda m, k=kind: m.group() if is_date(k, m.group()) else token(k, m.group()), text)
+            out.append({**msg, "content": text})
+        return MaskResult(out, mapping, counts)
+
+    def restore(self, text: str, mapping: dict[str, str]) -> str:
+        """가명 토큰을 원래 값으로. 조사 교정·바꿔 쓴 토큰 처리는 #45에서 더한다."""
+        return TOKEN.sub(lambda m: mapping.get(m.group(), m.group()), text)

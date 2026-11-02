@@ -1,8 +1,8 @@
 """요청 처리 흐름 (#12): 가명화 → FAQ → 로컬 판단 → 클라우드 판단 → LLM → 복원 → 로그.
 
 순서는 D12를 따른다. 단계별 규칙은 각 모듈에 있고, 이 파일은 순서와 기록만 맡는다.
-- 가명화 부품(Masker)은 바꿔 끼울 수 있다. M1은 UnavailableMasker라서, 개인정보가 보이거나 확인할 수 없는
-  요청은 밖으로 보내지 않고 막는다(masking_unavailable). M2에서 진짜 가명화로 바꾼다
+- 가명화 부품(Masker)은 바꿔 끼울 수 있다. 기본은 규칙 가명화 RuleMasker(사용자 사전 + 정규식, #44).
+  가명화를 할 수 없는 부품(UnavailableMasker)이면 개인정보가 보이거나 확인할 수 없는 요청을 막는다(masking_unavailable)
 - FAQ와 클라우드 판단은 마지막 사용자 메시지로 한다. 로컬 판단(남은 개인정보·기밀)은 밖으로 나갈 메시지 전체로 한다.
   LLM에는 대화 전체가 가므로 그 전부를 봐야 한다
 - 모든 경로가 요청 로그를 남긴다. 로그 저장이 실패해도 응답은 돌려준다. 로그에는 가명화된 문장만 들어간다 (#11)
@@ -19,7 +19,7 @@ from gateway.decision.questions import QUESTIONS
 from gateway.decision.service import DecisionService, JudgeResult
 from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
-from gateway.masking.masker import Masker, UnavailableMasker
+from gateway.masking.masker import Masker, RuleMasker, UnavailableMasker
 from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
                                     decide_without_masking, match_faq)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
@@ -66,7 +66,8 @@ class Gateway:
                       log: RequestLog | None = None) -> "Gateway":
         return cls(settings, DecisionService.from_settings(settings, transport),
                    LLMClient.from_settings(settings, transport),
-                   log if log is not None else RequestLog.from_config(settings.config.storage), masker)
+                   log if log is not None else RequestLog.from_config(settings.config.storage),
+                   masker or RuleMasker.from_config(settings.config.masking))
 
     def close(self) -> None:
         self.decision.close()

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from gateway.config import load_settings
 from gateway.main import create_app
+from gateway.masking.masker import UnavailableMasker
 from gateway.storage.log import RequestLog
 from tests.fakes import TEST_KEY, FakeMasker, FakeUpstream, difficulty, noul, predicate
 
@@ -26,6 +27,7 @@ def gateway(tmp_path, upstream, masker=None, level="basic", log=None):
     env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
     settings = load_settings(ROOT / "config.yaml", env_file=env)
     settings.config.security_level = level
+    settings.config.masking.user_dictionary_path = str(tmp_path / "없는-사전.txt")   # 늘 시연용 사전 (개발자 PC의 private/ 무관)
     log = log if log is not None else RequestLog(tmp_path / "gateway.db")
     app = create_app(settings, transport=httpx.MockTransport(upstream), masker=masker, log=log)
     with TestClient(app) as client:
@@ -104,7 +106,7 @@ def test_history_with_restored_values_is_masked_again(tmp_path):
 ], ids=["regex", "local-judge"])
 def test_without_masker_pii_requests_are_blocked_before_any_external_call(tmp_path, text, local):
     up = FakeUpstream(local=local)
-    with gateway(tmp_path, up) as (client, log):
+    with gateway(tmp_path, up, masker=UnavailableMasker()) as (client, log):
         r = ask(client, text)
         row = log.get(r.headers["x-gateway-request-id"])
         stored = db_bytes(log)
@@ -116,7 +118,7 @@ def test_without_masker_pii_requests_are_blocked_before_any_external_call(tmp_pa
 
 def test_without_masker_local_failure_blocks_even_in_basic(tmp_path):
     up = FakeUpstream(local_error=True)
-    with gateway(tmp_path, up) as (client, log):
+    with gateway(tmp_path, up, masker=UnavailableMasker()) as (client, log):
         r = ask(client, "보고서 초안 써 줘")
         row = log.get(r.headers["x-gateway-request-id"])
     assert row["reasons"] == ["masking_unavailable"] and up.external_calls == 0
@@ -311,3 +313,22 @@ def test_strict_cloud_failure_never_reaches_llm(tmp_path):
     assert (row["route"], row["reasons"]) == ("block", ["cloud_error"])
     assert r.json()["choices"][0]["finish_reason"] == "content_filter"
     assert up.bodies("/v1/chat/completions") == []
+
+
+# ── 기본 설정(규칙 가명화 + 시연용 사전)으로 시연 4번 (#44) ───
+
+def test_default_masker_sends_scenario_4_masked_and_restores(tmp_path):
+    """가짜 가명화가 아니라 기본 부품(RuleMasker, 시연용 사전)으로 끝까지 간다. M1의 임시 차단은 더 이상 걸리지 않는다."""
+    up = FakeUpstream(reply="[고객1] 고객님, 배송이 늦어져 죄송합니다. [전화번호1]로 연락드리겠습니다.")
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, ORIGINAL)
+        row = log.get(r.headers["x-gateway-request-id"])
+        stored = db_bytes(log)
+    assert r.json()["choices"][0]["message"]["content"] == \
+        "김민수 고객님, 배송이 늦어져 죄송합니다. 010-1234-5678로 연락드리겠습니다."
+    assert (row["route"], row["text_masked"], row["pii_counts"]) == ("cheap", MASKED, {"고객": 1, "전화번호": 1})
+    assert up.bodies("/v1/chat/completions")[0]["messages"][1]["content"] == MASKED
+    for value in RAW_VALUES:
+        assert value.encode() not in up.raw_bytes() and value.encode() not in stored
+    local = up.bodies("/v1/systemone")[0]
+    assert "김민수" not in local["state"]           # 로컬 판단도 가명화된 문장 (남은 개인정보 검사)
