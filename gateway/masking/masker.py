@@ -73,7 +73,8 @@ class RuleMasker:
 
     available = True
 
-    def __init__(self, entries: list[Entry]):
+    def __init__(self, entries: list[Entry], dictionary_source: str = "custom"):
+        self.dictionary_source = dictionary_source     # "custom"(회사 사전) | "example"(시연용 사전 복사본) → /healthz
         # 사전 값 전체를 정규식 하나로: 긴 값부터(같은 위치에서 "김민수진"이 "김민수"보다 먼저), 대소문자 무시
         values = sorted({normalize_text(e.value) for e in entries}, key=len, reverse=True)
         self.kinds = {}
@@ -86,8 +87,8 @@ class RuleMasker:
 
     @classmethod
     def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
-        entries, _, _ = load_dictionary(cfg)
-        return cls(entries)
+        entries, _, is_example = load_dictionary(cfg)    # 사전이 없으면 DictionaryMissing (시작하지 않는다, D21)
+        return cls(entries, "example" if is_example else "custom")
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
         taken = {m.group() for msg in messages for m in TOKEN.finditer(normalize_text(msg["content"]))}

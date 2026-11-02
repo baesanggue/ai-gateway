@@ -3,31 +3,25 @@
 가장 중요한 검사: 밖(OpenAI)으로 나간 요청의 바이트 전체와 로그 DB에 원본 이름·번호가 없다.
 """
 from contextlib import contextmanager
-from pathlib import Path
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway.config import load_settings
 from gateway.main import create_app
 from gateway.masking.masker import UnavailableMasker
 from gateway.storage.log import RequestLog
-from tests.fakes import TEST_KEY, FakeMasker, FakeUpstream, difficulty, noul, predicate
+from tests.fakes import FakeMasker, FakeUpstream, difficulty, noul, predicate, test_settings
 
-ROOT = Path(__file__).resolve().parent.parent
-ORIGINAL = "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"          # 시연 4번 (가상 값)
+ORIGINAL ="김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"          # 시연 4번 (가상 값)
 MASKED = "[고객1] 고객([전화번호1])에게 배송 지연 사과 메일 써줘"
 RAW_VALUES = ("김민수", "010-1234-5678")
 
 
 @contextmanager
 def gateway(tmp_path, upstream, masker=None, level="basic", log=None):
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings = test_settings(tmp_path)
     settings.config.security_level = level
-    settings.config.masking.user_dictionary_path = str(tmp_path / "없는-사전.txt")   # 늘 시연용 사전 (개발자 PC의 private/ 무관)
     log = log if log is not None else RequestLog(tmp_path / "gateway.db")
     app = create_app(settings, transport=httpx.MockTransport(upstream), masker=masker, log=log)
     with TestClient(app) as client:
@@ -282,9 +276,7 @@ def test_cached_verdict_expires(tmp_path, monkeypatch):
 
 def test_system_check_can_be_turned_off_and_single_turn_has_one_call(tmp_path):
     up = FakeUpstream(history={"is_risky": predicate("is_risky", 0.97)})
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings = test_settings(tmp_path)
     settings.config.decision.cloud.check_system_messages = False
     app = create_app(settings, transport=httpx.MockTransport(up), log=RequestLog(tmp_path / "gateway.db"))
     with TestClient(app) as client:

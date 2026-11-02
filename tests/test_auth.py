@@ -1,25 +1,19 @@
 """게이트웨이 키 검사 (D20, #12 보안 검토). 회사의 OpenAI 키를 아무나 대신 쓰지 못하게 한다."""
-from pathlib import Path
-
 import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway.config import load_settings
 from gateway.main import create_app
 from gateway.storage.log import RequestLog
-from tests.fakes import TEST_KEY, FakeUpstream
+from tests.fakes import TEST_KEY, FakeUpstream, test_settings
 
-ROOT = Path(__file__).resolve().parent.parent
 REMOTE = ("203.0.113.5", 50000)          # 문서용 예시 주소 (다른 PC)
 BODY = {"model": "gpt-test", "messages": [{"role": "user", "content": "회의 공지 짧게 써 줘"}]}
 
 
 def make_app(tmp_path, upstream, gateway_keys=""):
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\nGATEWAY_API_KEYS={gateway_keys}\n", encoding="utf-8")
-    return create_app(load_settings(ROOT / "config.yaml", env_file=env),
+    return create_app(test_settings(tmp_path, f"GATEWAY_API_KEYS={gateway_keys}\n"),
                       transport=httpx.MockTransport(upstream), log=RequestLog(tmp_path / "gateway.db"))
 
 

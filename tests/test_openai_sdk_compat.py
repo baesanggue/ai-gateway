@@ -4,25 +4,18 @@
 TestClient는 httpx.Client라서 SDK의 http_client로 넘기면 서버를 띄우지 않고 메모리 안에서 호출된다.
 게이트웨이 뒤의 상위 서버(판단·LLM)는 가짜(tests/fakes.py)다.
 """
-from pathlib import Path
-
 import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway.config import load_settings
 from gateway.main import create_app
 from gateway.storage.log import RequestLog
-from tests.fakes import TEST_KEY, FakeUpstream, predicate
-
-ROOT = Path(__file__).resolve().parent.parent
+from tests.fakes import FakeUpstream, predicate, test_settings
 
 
 def make_sdk(tmp_path, upstream):
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    app = create_app(load_settings(ROOT / "config.yaml", env_file=env),
+    app = create_app(test_settings(tmp_path),
                      transport=httpx.MockTransport(upstream), log=RequestLog(tmp_path / "gateway.db"))
     client = TestClient(app)
     client.__enter__()          # 앱 시작(lifespan)

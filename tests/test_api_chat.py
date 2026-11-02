@@ -1,23 +1,16 @@
 """/v1/chat/completions 엔드포인트 검사 (OpenAI 호환 형식). 상위 서버는 가짜(tests/fakes.py)."""
-from pathlib import Path
-
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway.config import load_settings
 from gateway.main import create_app
 from gateway.storage.log import RequestLog
-from tests.fakes import TEST_KEY, FakeUpstream
-
-ROOT = Path(__file__).resolve().parent.parent
+from tests.fakes import FakeUpstream, test_settings
 
 
 @pytest.fixture
 def client(tmp_path):
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    app = create_app(load_settings(ROOT / "config.yaml", env_file=env),
+    app = create_app(test_settings(tmp_path),
                      transport=httpx.MockTransport(FakeUpstream()), log=RequestLog(tmp_path / "gateway.db"))
     with TestClient(app) as c:   # with로 열어야 앱 시작(lifespan)에서 요청 처리 흐름이 만들어진다
         yield c
@@ -32,6 +25,7 @@ def test_healthz(client):
     r = client.get("/healthz")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    assert r.json()["dictionary"] == "example"            # 시연용 사전으로 동작 중임을 알린다 (D21)
 
 
 def test_returns_openai_shaped_completion(client):

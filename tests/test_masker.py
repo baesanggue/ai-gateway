@@ -4,8 +4,9 @@ import logging
 import pytest
 
 from gateway.config import MaskingConfig
-from gateway.masking.dictionary import Entry, load, parse
+from gateway.masking.dictionary import DictionaryMissing, Entry, load, parse
 from gateway.masking.masker import RuleMasker
+from tests.fakes import DEMO_DICTIONARY
 
 ENTRIES = [Entry("고객", "김민수"), Entry("고객", "김민수진"), Entry("직원", "최유진"), Entry("사내", "X-프로젝트")]
 
@@ -30,12 +31,21 @@ def test_bad_dictionary_lines_are_reported_without_the_value(text, message):
     assert message in str(e.value) and "김" not in str(e.value)     # 실제 이름은 오류 메시지에 남기지 않는다
 
 
-def test_falls_back_to_demo_dictionary_with_warning(tmp_path, caplog):
-    cfg = MaskingConfig(user_dictionary_path=str(tmp_path / "없음.txt"))
+def test_missing_dictionary_refuses_to_start(tmp_path):
+    """사전이 없으면 시연용 사전으로 조용히 넘어가지 않고 시작하지 않는다 (D21). 복사 방법을 알려 준다."""
+    with pytest.raises(DictionaryMissing) as e:
+        load(MaskingConfig(user_dictionary_path=str(tmp_path / "없음.txt")))
+    assert "copy" in str(e.value) and "user_dictionary.example.txt" in str(e.value)
+
+
+def test_copied_demo_dictionary_is_flagged_with_warning(tmp_path, caplog):
+    real = tmp_path / "user_dictionary.txt"
+    real.write_text(DEMO_DICTIONARY.read_text(encoding="utf-8"), encoding="utf-8")
     with caplog.at_level(logging.WARNING):
-        entries, path, is_example = load(cfg)
-    assert is_example and Entry("고객", "김민수") in entries and path.name == "user_dictionary.example.txt"
-    assert "시연용 가상 사전" in caplog.text
+        entries, _, is_example = load(MaskingConfig(user_dictionary_path=str(real)))
+    assert is_example and Entry("고객", "김민수") in entries
+    assert "시연용 가상 사전으로 동작 중" in caplog.text
+    assert RuleMasker.from_config(MaskingConfig(user_dictionary_path=str(real))).dictionary_source == "example"
 
 
 def test_real_dictionary_is_used_when_present(tmp_path):
