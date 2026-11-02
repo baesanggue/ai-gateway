@@ -6,12 +6,30 @@
 import json
 import re
 
+from pathlib import Path
+
 import httpx
 
+from gateway.config import load_settings
 from gateway.masking.masker import MaskResult
 from gateway.masking.patterns import PATTERNS
 
+ROOT = Path(__file__).resolve().parent.parent
 TEST_KEY = "sk-test-only-not-a-real-key"
+DEMO_DICTIONARY = ROOT / "config" / "user_dictionary.example.txt"
+
+
+def test_settings(tmp_path, extra_env=""):
+    """앱을 띄우는 테스트용 설정: 테스트 키, 그리고 사용자 사전 자리에 시연용 가상 사전.
+    사전이 없으면 게이트웨이가 시작하지 않으므로(D21) 늘 명시적으로 준다. 개발자 PC의 private/ 사전과 무관하다."""
+    env = tmp_path / ".env"
+    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n{extra_env}", encoding="utf-8")
+    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings.config.masking.user_dictionary_path = str(DEMO_DICTIONARY)
+    return settings
+
+
+test_settings.__test__ = False   # pytest가 테스트로 모으지 않게
 
 
 def noul(p):

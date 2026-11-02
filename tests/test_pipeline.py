@@ -3,28 +3,24 @@
 가장 중요한 검사: 밖(OpenAI)으로 나간 요청의 바이트 전체와 로그 DB에 원본 이름·번호가 없다.
 """
 from contextlib import contextmanager
-from pathlib import Path
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway.config import load_settings
 from gateway.main import create_app
+from gateway.masking.masker import UnavailableMasker
 from gateway.storage.log import RequestLog
-from tests.fakes import TEST_KEY, FakeMasker, FakeUpstream, difficulty, noul, predicate
+from tests.fakes import FakeMasker, FakeUpstream, difficulty, noul, predicate, test_settings
 
-ROOT = Path(__file__).resolve().parent.parent
-ORIGINAL = "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"          # 시연 4번 (가상 값)
+ORIGINAL ="김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"          # 시연 4번 (가상 값)
 MASKED = "[고객1] 고객([전화번호1])에게 배송 지연 사과 메일 써줘"
 RAW_VALUES = ("김민수", "010-1234-5678")
 
 
 @contextmanager
 def gateway(tmp_path, upstream, masker=None, level="basic", log=None):
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings = test_settings(tmp_path)
     settings.config.security_level = level
     log = log if log is not None else RequestLog(tmp_path / "gateway.db")
     app = create_app(settings, transport=httpx.MockTransport(upstream), masker=masker, log=log)
@@ -104,7 +100,7 @@ def test_history_with_restored_values_is_masked_again(tmp_path):
 ], ids=["regex", "local-judge"])
 def test_without_masker_pii_requests_are_blocked_before_any_external_call(tmp_path, text, local):
     up = FakeUpstream(local=local)
-    with gateway(tmp_path, up) as (client, log):
+    with gateway(tmp_path, up, masker=UnavailableMasker()) as (client, log):
         r = ask(client, text)
         row = log.get(r.headers["x-gateway-request-id"])
         stored = db_bytes(log)
@@ -116,7 +112,7 @@ def test_without_masker_pii_requests_are_blocked_before_any_external_call(tmp_pa
 
 def test_without_masker_local_failure_blocks_even_in_basic(tmp_path):
     up = FakeUpstream(local_error=True)
-    with gateway(tmp_path, up) as (client, log):
+    with gateway(tmp_path, up, masker=UnavailableMasker()) as (client, log):
         r = ask(client, "보고서 초안 써 줘")
         row = log.get(r.headers["x-gateway-request-id"])
     assert row["reasons"] == ["masking_unavailable"] and up.external_calls == 0
@@ -280,9 +276,7 @@ def test_cached_verdict_expires(tmp_path, monkeypatch):
 
 def test_system_check_can_be_turned_off_and_single_turn_has_one_call(tmp_path):
     up = FakeUpstream(history={"is_risky": predicate("is_risky", 0.97)})
-    env = tmp_path / ".env"
-    env.write_text(f"OPENAI_API_KEY={TEST_KEY}\n", encoding="utf-8")
-    settings = load_settings(ROOT / "config.yaml", env_file=env)
+    settings = test_settings(tmp_path)
     settings.config.decision.cloud.check_system_messages = False
     app = create_app(settings, transport=httpx.MockTransport(up), log=RequestLog(tmp_path / "gateway.db"))
     with TestClient(app) as client:
@@ -311,3 +305,32 @@ def test_strict_cloud_failure_never_reaches_llm(tmp_path):
     assert (row["route"], row["reasons"]) == ("block", ["cloud_error"])
     assert r.json()["choices"][0]["finish_reason"] == "content_filter"
     assert up.bodies("/v1/chat/completions") == []
+
+
+# ── 기본 설정(규칙 가명화 + 시연용 사전)으로 시연 4번 (#44) ───
+
+def test_default_masker_sends_scenario_4_masked_and_restores(tmp_path):
+    """가짜 가명화가 아니라 기본 부품(RuleMasker, 시연용 사전)으로 끝까지 간다. M1의 임시 차단은 더 이상 걸리지 않는다."""
+    up = FakeUpstream(reply="[고객1] 고객님, 배송이 늦어져 죄송합니다. [전화번호1]로 연락드리겠습니다.")
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, ORIGINAL)
+        row = log.get(r.headers["x-gateway-request-id"])
+        stored = db_bytes(log)
+    assert r.json()["choices"][0]["message"]["content"] == \
+        "김민수 고객님, 배송이 늦어져 죄송합니다. 010-1234-5678로 연락드리겠습니다."
+    assert (row["route"], row["text_masked"], row["pii_counts"]) == ("cheap", MASKED, {"고객": 1, "전화번호": 1})
+    assert up.bodies("/v1/chat/completions")[0]["messages"][1]["content"] == MASKED
+    for value in RAW_VALUES:
+        assert value.encode() not in up.raw_bytes() and value.encode() not in stored
+    local = up.bodies("/v1/systemone")[0]
+    assert "김민수" not in local["state"]           # 로컬 판단도 가명화된 문장 (남은 개인정보 검사)
+
+
+def test_unmaskable_pii_is_blocked_before_any_external_call(tmp_path):
+    """동그라미 숫자 전화번호는 정규화로도 못 가린다. 보안 수준과 관계없이 밖으로 보내지 않고, 로그에도 문장을 남기지 않는다."""
+    up = FakeUpstream()
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, "⓪①⓪-①②③④-⑤⑥⑦⑧로 배송 출발 문자 보내 줘")
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert (row["route"], row["reasons"]) == ("block", ["pii_unmasked"])
+    assert up.external_calls == 0 and row["text_withheld"] is True

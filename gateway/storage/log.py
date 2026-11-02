@@ -17,7 +17,7 @@ from typing import Any
 
 from gateway.config import ROOT, StorageConfig
 from gateway.decision.service import JudgeResult
-from gateway.masking.patterns import find_pii
+from gateway.masking.patterns import find_pii_compat
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS requests (
@@ -106,7 +106,8 @@ class RequestLog:
 
     def save(self, record: RequestRecord) -> str:
         row = asdict(record)
-        row["text_withheld"] = int(bool(find_pii(record.text_masked)))
+        # NFKC 사본으로 본다: 동그라미 숫자처럼 가리지 못한 표기의 번호도 로그에 남기지 않는다
+        row["text_withheld"] = int(bool(find_pii_compat(record.text_masked)))
         if row["text_withheld"]:
             row["text_masked"] = None
         for key in JSON_COLUMNS:

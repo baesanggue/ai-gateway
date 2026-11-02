@@ -89,6 +89,8 @@ class LLMConfig(BaseModel):
 
 class MaskingConfig(BaseModel):
     user_dictionary_path: str
+    # 시연용 가상 사전 (커밋됨). 시연할 때 user_dictionary_path로 복사해 쓴다. 그 상태면 경고·/healthz 표시 (D21)
+    example_dictionary_path: str = "config/user_dictionary.example.txt"
 
 
 class StorageConfig(BaseModel):
