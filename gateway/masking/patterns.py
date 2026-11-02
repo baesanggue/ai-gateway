@@ -19,19 +19,43 @@
   잡아 `2026110300123` 같은 주문번호와 구분한다. 하이픈 없는 계좌번호는 다른 번호와 구분할 수 없어 못 잡는다
 """
 import re
+import sys
 import unicodedata
 
-# 전각 영숫자·기호(！~～, U+FF01~FF5E) → 반각, 여러 대시 → 하이픈
-_NORMALIZE = str.maketrans({**{0xFF01 + i: 0x21 + i for i in range(94)}, **{c: "-" for c in "‐‑‒–—―−"}})
+def _normalize_table() -> dict[int, str | None]:
+    """가리기 전에 바꿀 문자표. 시작할 때 한 번 만든다 (유니코드 전체를 훑는 데 0.2초 안팎)."""
+    table: dict[int, str | None] = {0xFF01 + i: chr(0x21 + i) for i in range(94)}   # 전각 영숫자·기호 → 반각
+    for cp in range(sys.maxunicode + 1):
+        cat = unicodedata.category(chr(cp))
+        if cat == "Cf":                       # 보이지 않는 서식 문자: 폭 0 공백, 소프트 하이픈, BOM, 방향 표시 …
+            table[cp] = None
+        elif cat == "Pd":                     # 모든 대시: 엔대시·엠대시·물결 대시 …
+            table[cp] = "-"
+        elif cat == "Zs" and cp != 0x20:      # 모든 공백 문자: 전각 공백, 줄바꿈 없는 공백 …
+            table[cp] = " "
+    for cp in (*range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)):   # 이체 선택자 (글자 모양만 바꾼다)
+        table[cp] = None
+    table[0x2212] = "-"                       # 빼기 기호 (수학 기호라 Pd가 아니다)
+    return table
+
+
+_NORMALIZE = _normalize_table()
 
 
 def normalize_text(text: str) -> str:
     """가리기 전에 표기를 맞춘다 (#44 보안 검토: 같은 값이 다른 표기로 들어와 사전·정규식을 피하는 것을 막는다).
     - 유니코드 NFC: 자모를 나눠 쓴 "김민수"(NFD)를 한 글자씩 합친다
-    - 전각 → 반각: "０１０-１２３４" → "010-1234"
-    - 엔대시·엠대시 등 → 하이픈: 문서에서 복사하면 "010–1234–5678"처럼 바뀐다
-    NFKC는 쓰지 않는다. "ㅋㅋ"·"ㅠㅠ" 같은 한글 낱자를 다른 문자(조합용 자모)로 바꿔 버린다."""
-    return unicodedata.normalize("NFC", text).translate(_NORMALIZE)
+    - 보이지 않는 서식 문자·이체 선택자를 지운다: "김​민수"는 화면에는 김민수로 보인다
+    - 전각 → 반각, 모든 대시 → 하이픈, 모든 공백 문자 → 공백: "０１０–１２３４" → "010-1234"
+    NFKC는 쓰지 않는다. "ㅋㅋ"·"ㅠㅠ" 같은 한글 낱자를 조합용 자모로 바꿔 버린다.
+    NFKC로만 풀리는 표기(동그라미 숫자 등)는 masker의 마지막 검사(unmasked)가 막는다."""
+    return unicodedata.normalize("NFC", text.translate(_NORMALIZE)).translate(_NORMALIZE)
+
+
+def find_pii_compat(text: str) -> list[str]:
+    """NFKC로 바꾼 사본에서 찾는다. 가린 뒤의 문장에 이것이 걸리면, normalize_text로도 못 맞춘 표기
+    (동그라미 숫자 "⓪①⓪", 위첨자 숫자 등)로 쓴 개인정보가 남은 것이다. 사본은 검사에만 쓰고 밖으로 보내지 않는다."""
+    return find_pii(unicodedata.normalize("NFKC", text))
 
 
 _ROAD = r"[가-힣\d]{1,12}?(?:로|길)\s{0,3}\d{1,5}(?:-\d{1,5})?(?:,?\s{0,3}\d{1,4}동\s{0,3}\d{1,5}호)?"

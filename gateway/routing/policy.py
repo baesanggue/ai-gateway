@@ -24,7 +24,7 @@ SecurityLevel = Literal["basic", "strict", "local"]
 # 확실하게 판단된 보안 사유 → 판단을 거부한 경우 → 비용 문제(무관) 순서다.
 # 로컬 단계(기밀·남은 개인정보)와 클라우드 단계 사유는 한 요청에서 같이 나오지 않는다 (로컬에서 막히면 클라우드에 안 보낸다)
 BLOCK_PRIORITY = ("risky", "needs_raw", "refused", "off_topic",
-                  "confidential", "pii_residual", "masking_unavailable",
+                  "confidential", "pii_residual", "pii_unmasked", "masking_unavailable",
                   "local_error", "cloud_error", "low_confidence")
 DEFAULT_BLOCK_MESSAGE = "요청을 처리할 수 없습니다."
 
@@ -75,6 +75,12 @@ def decide_after_local(local: JudgeResult, level: SecurityLevel, block_messages:
     if any(_refused(j.get(q)) for q in ("is_confidential", "has_pii")):
         reasons.append("refused")
     return _block(reasons, block_messages) if reasons else None
+
+
+def decide_unmasked(unmasked: list[str], block_messages: dict[str, str]) -> Decision | None:
+    """가린 뒤에도 형식 있는 개인정보가 남았으면(동그라미 숫자처럼 정규화로도 못 맞춘 표기) 보안 수준과 관계없이 막는다.
+    판단 모델이 아니라 코드가 찾은 것이라 오탐이 거의 없고, 그대로 보내면 원본이 나간다 (#44 보안 검토)."""
+    return _block(["pii_unmasked"], block_messages) if unmasked else None
 
 
 def decide_without_masking(pii_found: bool, local: JudgeResult, block_messages: dict[str, str]) -> Decision | None:

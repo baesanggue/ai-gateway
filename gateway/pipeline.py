@@ -21,7 +21,7 @@ from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
 from gateway.masking.masker import Masker, RuleMasker, UnavailableMasker
 from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
-                                    decide_without_masking, match_faq)
+                                    decide_unmasked, decide_without_masking, match_faq)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,8 @@ class Gateway:
 
         # ① FAQ: 판단 전 코드 확인. 맞으면 아무것도 밖으로 보내지 않는다
         decision = match_faq(trace.request, cfg.faq)
+        # 가린 뒤에도 형식 있는 개인정보가 남았으면(정규화로도 못 맞춘 표기) 아무 판단 전에 막는다
+        decision = decision or decide_unmasked(masked.unmasked, msgs)
         # ② 로컬 판단: 원본을 봐야 하는 판단 (남은 개인정보·기밀). 차단이면 클라우드로 보내지 않는다
         if decision is None:
             local = self.decision.judge_local("\n".join(m["content"] for m in masked.messages if m["content"]))

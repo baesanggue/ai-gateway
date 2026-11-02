@@ -118,3 +118,32 @@ def test_dash_and_full_width_variants_are_masked_as_phone(text):
 def test_normalization_keeps_korean_jamo():
     """NFKC를 쓰면 ㅋㅋ·ㅠㅠ가 다른 문자(조합용 자모)로 바뀐다. NFC + 전각·대시만 맞추므로 그대로다."""
     assert mask("ㅋㅋ 배송 언제 와요 ㅠㅠ").messages[0]["content"] == "ㅋㅋ 배송 언제 와요 ㅠㅠ"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("김​민수 고객", "[고객1] 고객"),                 # 폭 0 공백
+    ("김­민수 고객", "[고객1] 고객"),                 # 소프트 하이픈
+    ("김️민수 고객", "[고객1] 고객"),                 # 이체 선택자
+    ("﻿김민수 고객", "[고객1] 고객"),                 # BOM
+    ("010​-1234-5678", "[전화번호1]"),
+    ("010　1234　5678", "[전화번호1]"),           # 전각 공백
+    ("010‐1234‐5678", "[전화번호1]"),           # 유니코드 하이픈 (Pd)
+    ("010−1234−5678", "[전화번호1]"),           # 빼기 기호
+], ids=["zwsp", "soft-hyphen", "variation-selector", "bom", "zwsp-phone", "ideographic-space", "unicode-hyphen", "minus"])
+def test_invisible_and_variant_characters_do_not_bypass(text, expected):
+    r = mask(text)
+    assert r.messages[0]["content"] == expected and r.unmasked == []
+
+
+def test_compat_only_forms_are_reported_as_unmasked():
+    """동그라미 숫자처럼 NFKC로만 풀리는 표기는 가리지 못한다. 대신 unmasked로 알려 파이프라인이 막는다."""
+    r = mask("⓪①⓪-①②③④-⑤⑥⑦⑧로 연락 주세요")
+    assert r.unmasked == ["전화번호"]
+
+
+def test_kind_lookup_miss_still_masks():
+    """정규식 대소문자 무시와 casefold()가 어긋나도 오류(500)가 나지 않고 값은 가려진다."""
+    m = RuleMasker([Entry("사내", "X-프로젝트")])
+    m.kinds.clear()                                         # 조회가 빗나가는 상황을 흉내 낸다
+    r = m.mask([{"role": "user", "content": "x-프로젝트 일정"}])
+    assert r.messages[0]["content"] == "[고객1] 일정"

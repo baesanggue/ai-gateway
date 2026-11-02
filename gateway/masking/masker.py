@@ -14,7 +14,7 @@ from typing import Protocol
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
-from gateway.masking.patterns import PATTERNS, find_pii, is_date, normalize_text
+from gateway.masking.patterns import PATTERNS, find_pii, find_pii_compat, is_date, normalize_text
 
 
 @dataclass
@@ -22,6 +22,8 @@ class MaskResult:
     messages: list[dict[str, str]]                         # 가명화된 메시지 ({"role", "content"})
     mapping: dict[str, str] = field(default_factory=dict)  # 가명 토큰 → 원래 값. 메모리에만 둔다
     counts: dict[str, int] = field(default_factory=dict)   # 개인정보 종류별 개수 (로그용, 값 없음)
+    # 가린 뒤에도 남은 개인정보 종류. 정규화로도 못 맞춘 표기(동그라미 숫자 등)다. 있으면 파이프라인이 막는다
+    unmasked: list[str] = field(default_factory=list)
 
     @property
     def has_pii(self) -> bool:
@@ -107,11 +109,20 @@ class RuleMasker:
         for msg in messages:
             text = normalize_text(msg["content"])
             if self.names is not None:
-                text = self.names.sub(lambda m: token(self.kinds[m.group().casefold()], m.group()), text)
+                text = self.names.sub(lambda m: token(self._kind(m.group()), m.group()), text)
             for kind, pattern in PATTERNS:
                 text = pattern.sub(lambda m, k=kind: m.group() if is_date(k, m.group()) else token(k, m.group()), text)
             out.append({**msg, "content": text})
-        return MaskResult(out, mapping, counts)
+        unmasked = [kind for msg in out for kind in find_pii_compat(msg["content"])]
+        return MaskResult(out, mapping, counts, unmasked)
+
+    def _kind(self, matched: str) -> str:
+        """사전에서 찾은 값의 종류. 정규식의 대소문자 무시와 casefold()는 몇몇 특수 문자에서 규칙이 달라
+        조회가 빗나갈 수 있다. 그때도 값은 가려야 하므로 오류 대신 하나씩 다시 맞춰 보고, 그래도 없으면 고객으로 둔다."""
+        kind = self.kinds.get(matched.casefold())
+        if kind is None:
+            kind = next((k for v, k in self.kinds.items() if re.fullmatch(re.escape(v), matched, re.IGNORECASE)), "고객")
+        return kind
 
     def restore(self, text: str, mapping: dict[str, str]) -> str:
         """가명 토큰을 원래 값으로. 조사 교정·바꿔 쓴 토큰 처리는 #45에서 더한다."""

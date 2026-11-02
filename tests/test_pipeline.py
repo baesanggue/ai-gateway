@@ -332,3 +332,13 @@ def test_default_masker_sends_scenario_4_masked_and_restores(tmp_path):
         assert value.encode() not in up.raw_bytes() and value.encode() not in stored
     local = up.bodies("/v1/systemone")[0]
     assert "김민수" not in local["state"]           # 로컬 판단도 가명화된 문장 (남은 개인정보 검사)
+
+
+def test_unmaskable_pii_is_blocked_before_any_external_call(tmp_path):
+    """동그라미 숫자 전화번호는 정규화로도 못 가린다. 보안 수준과 관계없이 밖으로 보내지 않고, 로그에도 문장을 남기지 않는다."""
+    up = FakeUpstream()
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, "⓪①⓪-①②③④-⑤⑥⑦⑧로 배송 출발 문자 보내 줘")
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert (row["route"], row["reasons"]) == ("block", ["pii_unmasked"])
+    assert up.external_calls == 0 and row["text_withheld"] is True
