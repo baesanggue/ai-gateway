@@ -14,7 +14,7 @@ from typing import Protocol
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
-from gateway.masking.patterns import PATTERNS, find_pii, find_pii_compat, is_date, normalize_text
+from gateway.masking.patterns import PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
 
 
 @dataclass
@@ -80,6 +80,9 @@ class RuleMasker:
         for e in entries:
             self.kinds.setdefault(normalize_text(e.value).casefold(), e.kind)
         self.names = re.compile("|".join(map(re.escape, values)), re.IGNORECASE) if values else None
+        # 마지막 검사용: 사전 값도 검사용 사본과 같은 방식으로 바꿔 둔다 (수학 글꼴 "𝐗-프로젝트" 같은 표기를 잡는다)
+        compat = sorted({compat_copy(v) for v in values}, key=len, reverse=True)
+        self.names_compat = re.compile("|".join(map(re.escape, compat)), re.IGNORECASE) if compat else None
 
     @classmethod
     def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
@@ -113,7 +116,13 @@ class RuleMasker:
             for kind, pattern in PATTERNS:
                 text = pattern.sub(lambda m, k=kind: m.group() if is_date(k, m.group()) else token(k, m.group()), text)
             out.append({**msg, "content": text})
-        unmasked = [kind for msg in out for kind in find_pii_compat(msg["content"])]
+        # 마지막 검사: 검사용 사본(NFKC, 결합 표시 제거)에 형식 있는 개인정보나 사전 값이 남았으면 unmasked
+        unmasked = []
+        for msg in out:
+            copy = compat_copy(msg["content"])
+            unmasked += find_pii(copy)
+            if self.names_compat is not None:
+                unmasked += [self._kind(m.group()) for m in self.names_compat.finditer(copy)]
         return MaskResult(out, mapping, counts, unmasked)
 
     def _kind(self, matched: str) -> str:

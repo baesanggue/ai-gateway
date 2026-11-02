@@ -22,40 +22,61 @@ import re
 import sys
 import unicodedata
 
+# 유니코드 기본 무시 문자(Default_Ignorable_Code_Point, DerivedCoreProperties.txt). 화면에 안 보인다.
+# 서식 문자(Cf)만으로는 모자랐다: 한글 채움 문자 U+3164 "ㅤ"(빈 닉네임에 흔히 쓰임)·U+115F·U+1160·U+FFA0,
+# 결합 문자 연결자 U+034F 등이 빠졌다 (11/02 네 번째 보안 검토). 점자 빈칸 U+2800은 목록에 없지만 안 보여서 더한다
+_DEFAULT_IGNORABLE = [(0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5),
+                      (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164),
+                      (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3),
+                      (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF), (0x2800, 0x2800)]
+
+
 def _normalize_table() -> dict[int, str | None]:
-    """가리기 전에 바꿀 문자표. 시작할 때 한 번 만든다 (유니코드 전체를 훑는 데 0.2초 안팎)."""
+    """가리기 전에 바꿀 문자표. 시작할 때 한 번 만든다 (유니코드 전체를 훑는 데 0.3초 안팎)."""
     table: dict[int, str | None] = {0xFF01 + i: chr(0x21 + i) for i in range(94)}   # 전각 영숫자·기호 → 반각
     for cp in range(sys.maxunicode + 1):
-        cat = unicodedata.category(chr(cp))
+        ch = chr(cp)
+        cat = unicodedata.category(ch)
         if cat == "Cf":                       # 보이지 않는 서식 문자: 폭 0 공백, 소프트 하이픈, BOM, 방향 표시 …
             table[cp] = None
         elif cat == "Pd":                     # 모든 대시: 엔대시·엠대시·물결 대시 …
             table[cp] = "-"
         elif cat == "Zs" and cp != 0x20:      # 모든 공백 문자: 전각 공백, 줄바꿈 없는 공백 …
             table[cp] = " "
-    for cp in (*range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)):   # 이체 선택자 (글자 모양만 바꾼다)
-        table[cp] = None
+        elif cat == "Nd" and not ("0" <= ch <= "9"):   # 다른 문자권 숫자(아랍-인도 숫자 등) → 0~9
+            table[cp] = str(unicodedata.digit(ch))
+    for lo, hi in _DEFAULT_IGNORABLE:
+        for cp in range(lo, hi + 1):
+            table[cp] = None
     table[0x2212] = "-"                       # 빼기 기호 (수학 기호라 Pd가 아니다)
     return table
 
 
 _NORMALIZE = _normalize_table()
+_MARKS = ("Mn", "Me")                         # 결합 표시: 검사용 사본에서만 지운다
 
 
 def normalize_text(text: str) -> str:
     """가리기 전에 표기를 맞춘다 (#44 보안 검토: 같은 값이 다른 표기로 들어와 사전·정규식을 피하는 것을 막는다).
     - 유니코드 NFC: 자모를 나눠 쓴 "김민수"(NFD)를 한 글자씩 합친다
-    - 보이지 않는 서식 문자·이체 선택자를 지운다: "김​민수"는 화면에는 김민수로 보인다
-    - 전각 → 반각, 모든 대시 → 하이픈, 모든 공백 문자 → 공백: "０１０–１２３４" → "010-1234"
+    - 안 보이는 문자를 지운다: 서식 문자(Cf)와 기본 무시 문자 전체 ("김​민수", "김ㅤ민수"는 화면에 김민수로 보인다)
+    - 전각 → 반각, 모든 대시 → 하이픈, 모든 공백 문자 → 공백, 모든 문자권 숫자 → 0~9
     NFKC는 쓰지 않는다. "ㅋㅋ"·"ㅠㅠ" 같은 한글 낱자를 조합용 자모로 바꿔 버린다.
-    NFKC로만 풀리는 표기(동그라미 숫자 등)는 masker의 마지막 검사(unmasked)가 막는다."""
+    NFKC로만 풀리는 표기(동그라미 숫자, 수학 글꼴 영문 등)는 masker의 마지막 검사(unmasked)가 막는다."""
     return unicodedata.normalize("NFC", text.translate(_NORMALIZE)).translate(_NORMALIZE)
 
 
+def compat_copy(text: str) -> str:
+    """마지막 검사용 사본: 결합 표시(Mn·Me)까지 지우고 NFKC로 바꾼 뒤 다시 정규화한다.
+    밖으로 보내지 않고 검사에만 쓴다 (NFKC는 한글 낱자를 바꾸고, 결합 표시 제거는 다른 문자권 글자를 바꾼다)."""
+    stripped = "".join(c for c in normalize_text(text) if unicodedata.category(c) not in _MARKS)
+    return normalize_text(unicodedata.normalize("NFKC", stripped))
+
+
 def find_pii_compat(text: str) -> list[str]:
-    """NFKC로 바꾼 사본에서 찾는다. 가린 뒤의 문장에 이것이 걸리면, normalize_text로도 못 맞춘 표기
-    (동그라미 숫자 "⓪①⓪", 위첨자 숫자 등)로 쓴 개인정보가 남은 것이다. 사본은 검사에만 쓰고 밖으로 보내지 않는다."""
-    return find_pii(unicodedata.normalize("NFKC", text))
+    """검사용 사본에서 형식 있는 개인정보를 찾는다. 가린 뒤의 문장에 이것이 걸리면, normalize_text로도 못 맞춘
+    표기(동그라미 숫자 "⓪①⓪" 등)로 쓴 개인정보가 남은 것이다."""
+    return find_pii(compat_copy(text))
 
 
 _ROAD = r"[가-힣\d]{1,12}?(?:로|길)\s{0,3}\d{1,5}(?:-\d{1,5})?(?:,?\s{0,3}\d{1,4}동\s{0,3}\d{1,5}호)?"

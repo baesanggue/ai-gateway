@@ -147,3 +147,21 @@ def test_kind_lookup_miss_still_masks():
     m.kinds.clear()                                         # 조회가 빗나가는 상황을 흉내 낸다
     r = m.mask([{"role": "user", "content": "x-프로젝트 일정"}])
     assert r.messages[0]["content"] == "[고객1] 일정"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("김ㅤ민수 고객", "[고객1] 고객"),                 # 한글 채움 문자 "ㅤ" (빈 닉네임에 흔히 쓰임)
+    ("김ᅟ민수 고객", "[고객1] 고객"),                 # 초성 채움 문자
+    ("김͏민수 고객", "[고객1] 고객"),                 # 결합 문자 연결자
+    ("김⠀민수 고객", "[고객1] 고객"),                 # 점자 빈칸
+    ("٠١٠-١٢٣٤-٥٦٧٨", "[전화번호1]"),   # 아랍-인도 숫자
+    ("०१०-१२३४-५६७८", "[전화번호1]"),   # 데바나가리 숫자
+], ids=["hangul-filler", "choseong-filler", "cgj", "braille-blank", "arabic-indic-digits", "devanagari-digits"])
+def test_default_ignorables_and_other_digits_do_not_bypass(text, expected):
+    r = mask(text)
+    assert r.messages[0]["content"] == expected and r.unmasked == []
+
+
+def test_dictionary_values_in_compat_only_forms_are_reported():
+    """수학 글꼴 영문처럼 NFKC로만 풀리는 사전 값은 가리지 못한다. 마지막 검사가 사전 값도 찾아 unmasked로 알린다."""
+    assert mask("\U0001d417-프로젝트 일정 공유해 줘").unmasked == ["사내"]
