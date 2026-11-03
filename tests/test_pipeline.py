@@ -334,3 +334,13 @@ def test_unmaskable_pii_is_blocked_before_any_external_call(tmp_path):
         row = log.get(r.headers["x-gateway-request-id"])
     assert (row["route"], row["reasons"]) == ("block", ["pii_unmasked"])
     assert up.external_calls == 0 and row["text_withheld"] is True
+
+
+def test_restored_answer_fixes_josa_and_logs_unrestored(tmp_path):
+    """#45: 조사를 원래 이름에 맞추고, 바꿔 쓴 토큰도 되돌리고, 대응표에 없는 토큰 수를 로그에 남긴다."""
+    up = FakeUpstream(reply="[고객1]은 [고객 1]님과 같은 분입니다. [고객2]는 누구인가요?")
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, ORIGINAL)
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert r.json()["choices"][0]["message"]["content"] == "김민수는 김민수님과 같은 분입니다. [고객2]는 누구인가요?"
+    assert row["unrestored_tokens"] == 1

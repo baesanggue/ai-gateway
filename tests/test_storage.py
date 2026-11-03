@@ -109,3 +109,19 @@ def test_wal_mode_and_concurrent_writes(log):
 def test_empty_log_totals(log):
     t = log.totals()
     assert (t["requests"], t["saved_usd"], t["by_route"]) == (0, 0, {})
+
+
+def test_old_db_gets_unrestored_column(tmp_path):
+    """#45 전에 만든 DB 파일: 기존 로그는 그대로 두고 unrestored_tokens 열만 더한다."""
+    import re
+    import sqlite3
+    from gateway.storage.log import SCHEMA
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    old = re.sub(r"(llm_error TEXT),(.*)\n\s*unrestored_tokens[^\n]*", r"\1\2", SCHEMA)
+    con.executescript(old)
+    assert "unrestored_tokens" not in {r[1] for r in con.execute("PRAGMA table_info(requests)")}
+    con.close()
+    log = RequestLog(path)
+    rid = log.save(record(unrestored_tokens=2))
+    assert log.get(rid)["unrestored_tokens"] == 2

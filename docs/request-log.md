@@ -21,6 +21,7 @@
 | `decision_input_tokens` | 클라우드 판단 입력 토큰. 판단 비용은 기존 방식에 없던 비용이라 따로 남긴다 |
 | `decision_latency_ms`, `total_latency_ms` | 판단 지연, 전체 지연 |
 | `llm_error` | LLM 오류 메시지 (모델·상태 코드·오류 code만 들어 있다, #9) |
+| `unrestored_tokens` | 답변에서 복원하지 못한 가명 토큰 수 (#45). 값은 없다. #45 전에 만든 DB 파일은 시작할 때 열만 더한다 |
 
 - **저장하지 않는 것**: LLM 답변. 복원된 답변에는 원본 이름·번호가 들어 있다.
 

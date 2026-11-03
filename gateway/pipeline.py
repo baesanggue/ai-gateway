@@ -48,6 +48,7 @@ class _Trace:
     request: str                                    # 가명화된 마지막 사용자 메시지
     pii_counts: dict[str, int]
     judges: list[JudgeResult] = field(default_factory=list)
+    unrestored: int = 0                             # 답변에서 복원하지 못한 토큰 수 (#45)
 
 
 class Gateway:
@@ -114,8 +115,9 @@ class Gateway:
                                        max_completion_tokens=max_completion_tokens)
         except LLMError as e:
             return self._finish(trace, decision, t0, "", "stop", error=str(e))
-        text = self.masker.restore(result.text, masked.mapping)
-        return self._finish(trace, decision, t0, text, result.finish_reason, result=result)
+        restored = self.masker.restore(result.text, masked.mapping)
+        trace.unrestored = restored.unrestored
+        return self._finish(trace, decision, t0, restored.text, result.finish_reason, result=result)
 
     def _judge_history(self, text: str) -> JudgeResult:
         """이전 대화 위험 판단. 챗봇은 매번 같은 system 지시문을 보내므로, 같은 내용은 결과를 기억해 다시 묻지 않는다.
@@ -167,7 +169,8 @@ class Gateway:
             cost_usd=cost, baseline_cost_usd=baseline,
             decision_input_tokens=sum(j.input_tokens for j in trace.judges if j.engine.startswith("cloud")),
             decision_latency_ms=round(sum(j.latency_ms for j in trace.judges), 1),
-            total_latency_ms=round((time.perf_counter() - t0) * 1000, 1), llm_error=error)
+            total_latency_ms=round((time.perf_counter() - t0) * 1000, 1), llm_error=error,
+            unrestored_tokens=trace.unrestored)
         self._save(record)
         return GatewayReply(record.id, decision.route, text or "", finish_reason,
                             model=result.model if result else None, usage=usage,

@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS requests (
     decision_input_tokens INTEGER NOT NULL, -- 클라우드 판단 입력 토큰 (판단 비용 근거)
     decision_latency_ms REAL NOT NULL,
     total_latency_ms REAL NOT NULL,
-    llm_error TEXT                         -- LLMError 메시지 (모델·상태 코드·오류 code만 들어 있다)
+    llm_error TEXT,                        -- LLMError 메시지 (모델·상태 코드·오류 code만 들어 있다)
+    unrestored_tokens INTEGER NOT NULL DEFAULT 0  -- 답변에서 복원하지 못한 가명 토큰 수 (#45)
 );
 CREATE INDEX IF NOT EXISTS requests_created_at ON requests (created_at);
 """
@@ -69,6 +70,7 @@ class RequestRecord:
     decision_latency_ms: float = 0.0
     total_latency_ms: float = 0.0
     llm_error: str | None = None
+    unrestored_tokens: int = 0
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds"))
 
@@ -89,6 +91,10 @@ class RequestLog:
         with self._db() as con:
             con.execute("PRAGMA journal_mode=WAL")
             con.executescript(SCHEMA)
+            # #45 전에 만든 DB 파일에는 unrestored_tokens 열이 없다. 있는 로그는 그대로 두고 열만 더한다
+            cols = {r["name"] for r in con.execute("PRAGMA table_info(requests)")}
+            if "unrestored_tokens" not in cols:
+                con.execute("ALTER TABLE requests ADD COLUMN unrestored_tokens INTEGER NOT NULL DEFAULT 0")
 
     @classmethod
     def from_config(cls, cfg: StorageConfig) -> "RequestLog":

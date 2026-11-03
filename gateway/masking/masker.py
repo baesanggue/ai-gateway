@@ -3,7 +3,7 @@
 파이프라인은 Masker만 알고 구현은 모른다. 그래서 M2에서 부품을 바꿔 끼우면 흐름은 그대로다.
 - mask(messages): 밖으로 나갈 메시지 전체를 가명화한다 (#37: 도구 결과·대화 이력 포함).
   복원 대응표(mapping)는 요청 처리 중 메모리에만 있다 (DB·로그·외부 저장 금지)
-- restore(text, mapping): LLM 답변의 가명 토큰을 원래 값으로 되돌린다
+- restore(text, mapping): LLM 답변의 가명 토큰을 원래 값으로 되돌린다 (조사 교정, 복원 못 한 토큰 수 → restore.py, #45)
 - available: False면 가명화를 할 수 없는 부품이다. 파이프라인은 개인정보가 보이거나 확인할 수 없는 요청을
   밖으로 보내지 않고 막는다 (routing.policy.decide_without_masking)
 """
@@ -15,6 +15,8 @@ from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
 from gateway.masking.patterns import PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
+from gateway.masking.restore import Restored
+from gateway.masking.restore import restore as restore_tokens
 
 
 @dataclass
@@ -35,7 +37,7 @@ class Masker(Protocol):
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult: ...
 
-    def restore(self, text: str, mapping: dict[str, str]) -> str: ...
+    def restore(self, text: str, mapping: dict[str, str]) -> Restored: ...
 
 
 class UnavailableMasker:
@@ -51,11 +53,11 @@ class UnavailableMasker:
                 counts[kind] = counts.get(kind, 0) + 1
         return MaskResult([dict(m) for m in messages], {}, counts)
 
-    def restore(self, text: str, mapping: dict[str, str]) -> str:
-        return text
+    def restore(self, text: str, mapping: dict[str, str]) -> Restored:
+        return Restored(text)
 
 
-TOKEN = re.compile(r"\[([^\[\]\d]+)(\d+)\]")   # [고객1], [전화번호2]
+LOOSE_TOKEN = re.compile(r"([^\W\d_]+)\s?(\d+)(?!\d)")   # 고객1, 고객 1 (괄호 종류와 관계없이)
 
 
 class RuleMasker:
@@ -65,7 +67,7 @@ class RuleMasker:
     - 같은 값 = 같은 토큰. 한 요청 안에서는 메시지가 달라도 같다
     - 메시지 전체를 가린다(#37): system·user·assistant·tool. 복원된 답변이 다음 요청의 이력으로 돌아오고,
       도구 결과에는 회사 DB의 고객 정보가 들어 있다
-    - 입력에 이미 [고객1] 같은 글자가 있으면 그 번호는 건너뛴다. 복원할 때 사용자가 쓴 글자를 다른 값으로 바꾸지 않게
+    - 입력에 이미 [고객1]·[고객 1]·고객1 같은 글자가 있으면 그 번호는 건너뛴다. 복원할 때 사용자가 쓴 글자를 다른 값으로 바꾸지 않게
     - 이름이 다른 낱말 안에 들어 있어도 가린다(한국어는 조사가 붙어 낱말 경계를 정하기 어렵다). 사전에는 두 글자 이상만
     - 가리기 전에 표기를 맞춘다(patterns.normalize_text: NFC, 전각 → 반각, 대시 → 하이픈). 밖으로 나가는 문장도
       맞춘 표기다. 사전은 영문 대소문자를 구분하지 않는다 ("x-프로젝트"도 가린다)
@@ -91,7 +93,9 @@ class RuleMasker:
         return cls(entries, "example" if is_example else "custom")
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
-        taken = {m.group() for msg in messages for m in TOKEN.finditer(normalize_text(msg["content"]))}
+        # 입력에 이미 있는 토큰 모양의 번호는 쓰지 않는다. 복원은 바꿔 쓴 모양([고객 1], 고객1님)도 되돌리므로 그 모양도 센다
+        taken = {f"[{m.group(1)}{m.group(2)}]" for msg in messages
+                 for m in LOOSE_TOKEN.finditer(normalize_text(msg["content"]))}
         mapping: dict[str, str] = {}
         by_value: dict[str, str] = {}
         counts: dict[str, int] = {}
@@ -134,6 +138,7 @@ class RuleMasker:
             kind = next((k for v, k in self.kinds.items() if re.fullmatch(re.escape(v), matched, re.IGNORECASE)), "고객")
         return kind
 
-    def restore(self, text: str, mapping: dict[str, str]) -> str:
-        """가명 토큰을 원래 값으로. 조사 교정·바꿔 쓴 토큰 처리는 #45에서 더한다."""
-        return TOKEN.sub(lambda m: mapping.get(m.group(), m.group()), text)
+    def restore(self, text: str, mapping: dict[str, str]) -> Restored:
+        """가명 토큰을 원래 값으로 (#45). 조사를 원래 값의 받침에 맞추고, 바꿔 쓴 토큰([고객 1], 【고객1】)도 되돌린다.
+        복원하지 못한 토큰은 사전·정규식 종류의 토큰 모양만 센다."""
+        return restore_tokens(text, mapping, set(self.kinds.values()) | {k for k, _ in PATTERNS})
