@@ -12,6 +12,7 @@ import httpx
 
 from gateway.config import load_settings
 from gateway.masking.masker import MaskResult
+from gateway.masking.restore import Restored
 from gateway.masking.patterns import PATTERNS
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -145,4 +146,4 @@ class FakeMasker:
         return MaskResult(out, mapping, counts)
 
     def restore(self, text, mapping):
-        return re.sub(r"\[[^\[\]]+\d+\]", lambda m: mapping.get(m.group(), m.group()), text)
+        return Restored(re.sub(r"\[[^\[\]]+\d+\]", lambda m: mapping.get(m.group(), m.group()), text))
