@@ -7,9 +7,11 @@
   - 크기 상한, 파일 앞부분으로 형식 확인(이름만 바꾼 파일을 깊이 읽지 않는다)
   - docx·xlsx는 zip이라 압축 폭탄을 검사한다: 풀린 크기 합, 압축률, 항목 수
   - XML 외부 엔티티를 풀지 않는다: python-docx는 resolve_entities=False, openpyxl은 defusedxml을 쓴다
-  - 쪽·셀·글자 수 상한
+  - PDF 안의 압축된 데이터도 풀린 크기에 상한을 둔다 (pypdf 설정, 이 함수 안에서만)
+  - 쪽·셀·글자 수 상한은 다 읽은 뒤가 아니라 **읽는 도중에** 확인한다. 엑셀은 빈 칸·빈 행도 센다
 """
 import io
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,8 +20,10 @@ MAX_BYTES = 10 * 1024 * 1024          # 올릴 수 있는 파일 크기
 MAX_UNZIPPED = 100 * 1024 * 1024      # docx·xlsx를 풀었을 때 크기 합
 MAX_RATIO = 100                       # 풀린 크기 ÷ 파일 크기
 MAX_ZIP_ENTRIES = 5_000
+MAX_STREAM_BYTES = 20 * 1024 * 1024   # PDF 안의 압축된 데이터 하나를 풀었을 때 크기 (pypdf 기본값 75MB)
+MAX_PDF_SECONDS = 30                  # PDF 글자 뽑기 시간 (쪽을 넘길 때마다 확인)
 MAX_PAGES = 500
-MAX_CELLS = 200_000
+MAX_CELLS = 200_000                   # 엑셀에서 도는 칸 수 (빈 칸 포함, 빈 행은 1칸)
 MAX_CHARS = 2_000_000
 SUPPORTED = (".pdf", ".docx", ".xlsx", ".txt", ".csv")
 
@@ -54,27 +58,56 @@ def extract(filename: str, data: bytes) -> list[Segment]:
     segments = [s for s in segments if s.text.strip()]
     if not segments:
         raise FileError("no_text", "파일에서 글자를 읽을 수 없습니다. 스캔한 이미지라면 검사할 수 없습니다.")
-    if sum(len(s.text) for s in segments) > MAX_CHARS:
-        raise FileError("too_long", f"글자가 너무 많습니다 ({MAX_CHARS:,}자까지)")
+    if sum(len(s.text) for s in segments) > MAX_CHARS:     # docx·txt (pdf·xlsx는 읽는 도중에도 확인한다)
+        raise _too_many_chars()
     return segments
 
 
+def _too_many_chars() -> FileError:
+    return FileError("too_long", f"글자가 너무 많습니다 ({MAX_CHARS:,}자까지)")
+
+
+def _pdf_limits() -> dict[str, int]:
+    """pypdf가 압축된 데이터를 풀 때 쓰는 상한 (pypdf 6.x Configuration 필드). 기본값보다 낮춘다."""
+    return {
+        "maximum_declared_stream_length": MAX_STREAM_BYTES,
+        "array_based_stream_maximum_output_length": MAX_STREAM_BYTES,
+        "zlib_maximum_output_length": MAX_STREAM_BYTES,
+        "lzw_maximum_output_length": MAX_STREAM_BYTES,
+        "run_length_maximum_output_length": MAX_STREAM_BYTES,
+        "brotli_maximum_output_length": MAX_STREAM_BYTES,
+        "stream_decoding_work_maximum_length": 4 * MAX_STREAM_BYTES,   # 필터를 여러 겹 쓴 경우의 합
+    }
+
+
 def _pdf(data: bytes) -> list[Segment]:
-    from pypdf import PdfReader
-    from pypdf.errors import PdfReadError
+    from pypdf import PdfReader, apply_configuration
+    from pypdf.errors import LimitReachedError, PyPdfError
     if not data.startswith(b"%PDF"):
         raise FileError("unreadable", "PDF 파일이 아닙니다.")
+    out, chars, deadline = [], 0, time.monotonic() + MAX_PDF_SECONDS
     try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted and not reader.decrypt(""):
-            raise FileError("encrypted", "암호가 걸린 PDF는 검사할 수 없습니다.")
-        if len(reader.pages) > MAX_PAGES:
-            raise FileError("too_long", f"쪽 수가 너무 많습니다 ({MAX_PAGES}쪽까지)")
-        return [Segment(f"{i}쪽", page.extract_text() or "") for i, page in enumerate(reader.pages, 1)]
+        with apply_configuration(**_pdf_limits()):   # 이 블록 안에서만 적용된다 (contextvar)
+            reader = PdfReader(io.BytesIO(data))
+            if reader.is_encrypted and not reader.decrypt(""):
+                raise FileError("encrypted", "암호가 걸린 PDF는 검사할 수 없습니다.")
+            if len(reader.pages) > MAX_PAGES:
+                raise FileError("too_long", f"쪽 수가 너무 많습니다 ({MAX_PAGES}쪽까지)")
+            for i, page in enumerate(reader.pages, 1):
+                if time.monotonic() > deadline:
+                    raise FileError("too_long", f"PDF를 읽는 데 너무 오래 걸립니다 ({MAX_PDF_SECONDS}초까지)")
+                text = page.extract_text() or ""
+                chars += len(text)
+                if chars > MAX_CHARS:                # 남은 쪽을 더 읽지 않는다
+                    raise _too_many_chars()
+                out.append(Segment(f"{i}쪽", text))
     except FileError:
         raise
-    except (PdfReadError, ValueError, KeyError, TypeError) as e:
+    except LimitReachedError as e:                   # PdfReadError가 아니라 따로 잡아야 한다
+        raise FileError("zip_bomb", "압축을 풀면 지나치게 커지는 PDF라 검사하지 않습니다.") from e
+    except (PyPdfError, ValueError, KeyError, TypeError) as e:
         raise FileError("unreadable", f"PDF를 읽지 못했습니다 ({type(e).__name__}).") from e
+    return out
 
 
 def _check_zip(data: bytes) -> None:
@@ -108,6 +141,7 @@ def _docx(data: bytes) -> list[Segment]:
 
 def _xlsx(data: bytes) -> list[Segment]:
     import openpyxl
+    from openpyxl.utils import get_column_letter
     from openpyxl.xml import DEFUSEDXML
     if not DEFUSEDXML:       # defusedxml 없이 엑셀 XML을 읽지 않는다 (외부 엔티티·엔티티 폭탄)
         raise FileError("unreadable", "안전한 XML 읽기(defusedxml)를 쓸 수 없어 엑셀 파일을 검사하지 않습니다.")
@@ -115,17 +149,23 @@ def _xlsx(data: bytes) -> list[Segment]:
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as e:
         raise FileError("unreadable", f"엑셀 파일을 읽지 못했습니다 ({type(e).__name__}).") from e
-    out, cells = [], 0
+    out, visited, chars = [], 0, 0
     try:
         for ws in wb.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    if cell.value is None:
+            # 파일이 적어 둔 시트 크기(A1:XFD1048576 같은 값)를 믿지 않는다. 그 크기만큼 빈 칸을 만들어 돌게 된다
+            ws.reset_dimensions()
+            for r, row in enumerate(ws.iter_rows(values_only=True), 1):
+                visited += max(len(row), 1)        # 빈 칸·빈 행도 센다: 값이 없어도 도는 시간은 든다
+                if visited > MAX_CELLS:
+                    raise FileError("too_long", f"셀이 너무 많습니다 ({MAX_CELLS:,}칸까지, 빈 칸 포함)")
+                for c, value in enumerate(row, 1):
+                    if value is None:
                         continue
-                    cells += 1
-                    if cells > MAX_CELLS:
-                        raise FileError("too_long", f"셀이 너무 많습니다 ({MAX_CELLS:,}개까지)")
-                    out.append(Segment(f"'{ws.title}' 시트 {cell.coordinate}", str(cell.value)))
+                    text = str(value)
+                    chars += len(text)
+                    if chars > MAX_CHARS:
+                        raise _too_many_chars()
+                    out.append(Segment(f"'{ws.title}' 시트 {get_column_letter(c)}{r}", text))
     finally:
         wb.close()
     return out
