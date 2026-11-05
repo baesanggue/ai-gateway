@@ -4,7 +4,7 @@
 - 종류가 토큰 이름이 된다 (고객 → [고객1]). 쉼표가 없으면 종류를 고객으로 본다
 - 빈 줄과 #으로 시작하는 줄은 건너뛴다
 - 실제 사전은 private/(커밋 안 함). 없으면 게이트웨이를 시작하지 않는다 (D21). 시연할 때는 시연용 가상 사전
-  config/user_dictionary.example.txt를 그 자리로 복사한다
+  (업종 프리셋의 config/presets/<프리셋>.dictionary.example.txt)를 그 자리로 복사한다
 - 오류 메시지에는 줄 번호만 넣는다. 값(실제 이름)은 로그·화면에 남기지 않는다
 """
 import logging

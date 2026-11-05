@@ -35,7 +35,7 @@ def test_missing_dictionary_refuses_to_start(tmp_path):
     """사전이 없으면 시연용 사전으로 조용히 넘어가지 않고 시작하지 않는다 (D21). 복사 방법을 알려 준다."""
     with pytest.raises(DictionaryMissing) as e:
         load(MaskingConfig(user_dictionary_path=str(tmp_path / "없음.txt")))
-    assert "copy" in str(e.value) and "user_dictionary.example.txt" in str(e.value)
+    assert "copy" in str(e.value) and "dictionary.example.txt" in str(e.value)
 
 
 def test_copied_demo_dictionary_is_flagged_with_warning(tmp_path, caplog):
