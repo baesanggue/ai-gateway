@@ -266,6 +266,54 @@ def test_xml_element_cap_applies_to_docx(monkeypatch):
     assert e.value.code == "too_long"
 
 
+def _add_to_zip(data: bytes, name: str, body: bytes) -> bytes:
+    src, dst = zipfile.ZipFile(io.BytesIO(data)), io.BytesIO()
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_STORED) as z:
+        for info in src.infolist():
+            z.writestr(info.filename, src.read(info))
+        z.writestr(name, body)
+    return dst.getvalue()
+
+
+def _xml_elements(data: bytes) -> int:
+    return extract_module._count_xml(data, zipfile.ZipFile(io.BytesIO(data)).infolist()).elements
+
+
+def test_utf16_xml_without_bom_is_counted(monkeypatch):
+    """앞이 "\\0<"(BOM 없는 UTF-16BE)이고 이름도 .xml이 아닌 부분. expat은 이것을 XML로 읽으므로 세야 한다."""
+    data = _add_to_zip(make_docx(), "word/media/x.bin", ("<a>" + "<b/>" * 50 + "</a>").encode("utf-16-be"))
+    monkeypatch.setattr(extract_module, "MAX_XML_ELEMENTS", _xml_elements(make_docx()) + 10)
+    with pytest.raises(FileError) as e:
+        extract("utf16.docx", data)
+    assert e.value.code == "too_long"
+
+
+def test_part_declared_xml_in_content_types_must_parse():
+    def declare(body: bytes) -> bytes:
+        return body.replace(b"</Types>", b'<Override PartName="/word/custom.dat" ContentType="application/xml"/></Types>')
+    data = _patch_zip(_add_to_zip(make_docx(), "word/custom.dat", b"not xml"), "[Content_Types].xml", declare)
+    with pytest.raises(FileError) as e:
+        extract("형식목록.docx", data)
+    assert e.value.code == "unreadable"                              # XML이라고 적혀 있는데 훑지 못했다 → 읽지 않는다
+
+
+def test_binary_parts_are_not_parsed_as_xml():
+    """이미지·인쇄 설정 같은 이진 부분은 건너뛴다 (정상 파일을 막지 않는다)."""
+    data = _add_to_zip(make_xlsx(), "xl/printerSettings/printerSettings1.bin", "HP LaserJet".encode("utf-16-le"))
+    data = _add_to_zip(data, "xl/media/image1.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    assert any(s.where == "'고객' 시트 A2" for s in extract("인쇄설정.xlsx", data))
+
+
+def test_pdf_char_cap_counts_text_pypdf_has_not_flushed_yet(monkeypatch):
+    """BT 하나 안의 Tj 200개. pypdf는 ET에서야 글자를 넘겨 주므로, 연산자의 문자열로 미리 세야 중간에 멈춘다."""
+    calls = _ticking_clock(monkeypatch)
+    monkeypatch.setattr(extract_module, "MAX_PDF_SECONDS", 10**9)
+    monkeypatch.setattr(extract_module, "MAX_CHARS", 30)
+    with pytest.raises(FileError) as e:
+        extract("모아두기.pdf", make_pdf(b"BT /F1 12 Tf 20 100 Td " + b"(AAAAAAAAAA) Tj " * 200 + b"ET"))
+    assert e.value.code == "too_long" and len(calls) < 20             # Tj 4개째에서 멈춘다
+
+
 def test_xml_entity_declaration_refused():
     def add_entity(body: bytes) -> bytes:
         end = body.index(b"?>") + 2                                  # <?xml …?> 뒤
