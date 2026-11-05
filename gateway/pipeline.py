@@ -47,6 +47,7 @@ class _Trace:
     """한 요청에서 모은 것. 끝에 로그 한 줄이 된다."""
     request: str                                    # 가명화된 마지막 사용자 메시지
     pii_counts: dict[str, int]
+    withhold: bool = False                          # 가리지 못한 개인정보가 남아 로그에 문장을 남기지 않는다
     judges: list[JudgeResult] = field(default_factory=list)
     unrestored: int = 0                             # 답변에서 복원하지 못한 토큰 수 (#45)
 
@@ -79,7 +80,7 @@ class Gateway:
         cfg = self.settings.config
         msgs = cfg.routing.block_messages
         masked = self.masker.mask(messages)
-        trace = _Trace(_last_user(masked.messages), masked.counts)
+        trace = _Trace(_last_user(masked.messages), masked.counts, withhold=bool(masked.unmasked))
 
         # ① FAQ: 판단 전 코드 확인. 맞으면 아무것도 밖으로 보내지 않는다
         decision = match_faq(trace.request, cfg.faq)
@@ -159,7 +160,7 @@ class Gateway:
         # LLM이 실패하면 쓴 토큰도 아낀 비용도 없다. 템플릿·차단은 cost.py 규칙대로 (D18)
         baseline = 0.0 if error else baseline_cost(decision.route, usage, trace.request, llm_cfg)
         record = RequestRecord(
-            security_level=self.settings.config.security_level, text_masked=trace.request,
+            security_level=self.settings.config.security_level, text_masked=trace.request, withhold_text=trace.withhold,
             route=decision.route, reasons=decision.reasons, pii_counts=trace.pii_counts, faq_id=decision.faq_id,
             judgments={j.engine: judge_summary(j) for j in trace.judges},
             tier=result.tier if result else None, model=result.model if result else None,
