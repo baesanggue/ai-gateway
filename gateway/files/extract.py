@@ -28,6 +28,7 @@ MAX_ZIP_ENTRIES = 5_000
 MAX_XML_ELEMENTS = 1_500_000          # docx·xlsx 안 XML 요소 수 합 (셀 20만 개짜리 엑셀이 약 85만)
 MAX_STREAM_BYTES = 20 * 1024 * 1024   # PDF 안의 압축된 데이터 하나를 풀었을 때 크기 (pypdf 기본값 75MB)
 MAX_PDF_SECONDS = 30                  # PDF 글자 뽑기 시간 (연산자마다 확인)
+MAX_PAGE_TEXT_BYTES = 100_000         # PDF 한 쪽의 글자 연산자 문자열 합 (빽빽한 한국어 쪽이 약 1만 바이트)
 MAX_PAGES = 500
 MAX_CELLS = 200_000                   # 엑셀에서 도는 칸 수 (빈 칸 포함, 빈 행은 1칸)
 MAX_COLUMNS = 16_384                  # 엑셀의 마지막 열 XFD
@@ -105,6 +106,9 @@ class _PdfGuard:
     - 글자는 연산자가 실행되기 **전에** 문자열 길이로 센다. pypdf는 글자를 모아 두었다가
       위치가 바뀔 때(ET, Td 등)에야 넘겨 주므로, 넘겨받은 글자만 세면 모아 둔 양을 못 본다.
       넘겨받은 글자(count)와 둘 중 큰 쪽을 쓴다.
+    - 바이트 수는 글자 수의 어림값일 뿐이다. 글꼴의 글자 대응표(ToUnicode)는 코드 하나를 여러 글자로
+      바꿀 수 있다. pypdf 6.x는 대응 하나를 512바이트(256글자)로 제한하므로, 한 쪽의 문자열 바이트에
+      상한을 두면 그 쪽에서 모아 둘 수 있는 글자도 최대 상한 × 256으로 묶인다.
     - pypdf는 양식 객체(XObject) 안에서 난 예외를 삼키고 계속한다. 그래도 상태가 남아 있어
       바깥 쪽의 다음 연산자에서 다시 걸리고, 거기서는 예외가 그대로 올라온다.
     """
@@ -112,11 +116,16 @@ class _PdfGuard:
     def __init__(self):
         self.deadline = _clock() + MAX_PDF_SECONDS
         self.done = 0                     # 다 읽은 쪽들의 실제 글자 수
-        self.shown = self.flushed = 0     # 지금 쪽: 연산자로 센 값, 넘겨받은 값
+        self.shown = self.flushed = 0     # 지금 쪽: 연산자로 센 바이트, 넘겨받은 글자
+
+    def _check_page_bytes(self) -> None:
+        if self.shown > MAX_PAGE_TEXT_BYTES:
+            raise FileError("too_long", f"한 쪽의 글자가 너무 많습니다 (쪽마다 {MAX_PAGE_TEXT_BYTES:,}바이트까지)")
 
     def check(self, operator=None, operands=(), *_) -> None:
         if operator in _SHOW_TEXT:
             self.shown += _shown_len(operands)
+        self._check_page_bytes()          # 글자 연산자가 아니어도 본다 (양식 안에서 걸려 삼켜진 경우)
         if _clock() > self.deadline:
             raise FileError("too_long", f"PDF를 읽는 데 너무 오래 걸립니다 ({MAX_PDF_SECONDS}초까지)")
         if self.done + max(self.shown, self.flushed) > MAX_CHARS:
@@ -127,6 +136,7 @@ class _PdfGuard:
         self.check()
 
     def page_done(self, text: str) -> None:
+        self._check_page_bytes()          # 쪽의 마지막 연산자가 양식이었어도 여기서 멈춘다
         self.done += len(text)            # 어림값 대신 실제 길이로 맞춘다
         self.shown = self.flushed = 0
         self.check()                      # 양식 객체 안에서 걸려 삼켜졌어도 여기서 멈춘다
@@ -211,17 +221,28 @@ class _XmlCounter(xml.sax.handler.ContentHandler):
 
     def declared_xml(self, filename: str) -> bool:
         name = filename.lower()
-        ext = name.rpartition("/")[2].rpartition(".")[2]
+        base = name.rpartition("/")[2]
+        ext = base.rpartition(".")[2] if "." in base else ""     # OPC 방식: 마지막 "." 뒤, 없으면 빈 값
         return name.endswith((".xml", ".rels")) or ext in self.xml_extensions or name in self.xml_parts
 
 
 _EBCDIC_XML_DECL = b"\x4c\x6f\xa7\x94"       # EBCDIC로 쓴 "<?xm"
+_XML_LEAD = b"\x00\xef\xbb\xbf\xfe\xff \t\r\n"   # BOM 조각, NUL(BOM 없는 UTF-16·32), 공백
 
 
-def _looks_like_xml(head: bytes) -> bool:
-    """XML 파서(expat, libxml2)가 문서로 읽기 시작할 수 있는 앞부분인가. 넓게 잡는다:
-    BOM(UTF-8·16·32), BOM 없는 UTF-16·32("\\0<"), 앞 공백, EBCDIC."""
-    return head.startswith(_EBCDIC_XML_DECL) or head.lstrip(b"\x00\xef\xbb\xbf\xfe\xff \t\r\n").startswith(b"<")
+def _looks_like_xml(f) -> bool:
+    """XML 파서(expat, libxml2)가 문서로 읽기 시작할 수 있는가. 넓게 잡는다.
+    앞의 BOM·공백·NUL은 **길이와 상관없이** 건너뛰고 첫 글자가 "<"인지 본다 (선언 없는 XML은 앞 공백이 허용된다).
+    EBCDIC은 선언("<?xm")으로만 알아보므로 맨 앞을 본다."""
+    chunk = f.read(64 * 1024)
+    if chunk.startswith(_EBCDIC_XML_DECL):
+        return True
+    while chunk:
+        rest = chunk.lstrip(_XML_LEAD)
+        if rest:
+            return rest.startswith(b"<")
+        chunk = f.read(64 * 1024)
+    return False                                 # 비었거나 공백뿐
 
 
 def _count_xml(data: bytes, infos: list[zipfile.ZipInfo]) -> _XmlCounter:
@@ -237,9 +258,11 @@ def _count_xml(data: bytes, infos: list[zipfile.ZipInfo]) -> _XmlCounter:
             for info in sorted(infos, key=lambda i: i.filename != CONTENT_TYPES):   # 형식 목록을 먼저 읽는다
                 if info.is_dir():
                     continue
-                with z.open(info) as f:
-                    if not (counter.declared_xml(info.filename) or _looks_like_xml(f.peek(64)[:64])):
-                        continue                     # 이미지·글꼴·인쇄 설정 같은 이진 파일
+                if not counter.declared_xml(info.filename):
+                    with z.open(info) as f:
+                        if not _looks_like_xml(f):
+                            continue                 # 이미지·글꼴·인쇄 설정 같은 이진 파일
+                with z.open(info) as f:              # 처음부터 다시 연다
                     parser = defusedxml.sax.make_parser()
                     parser.setContentHandler(counter)
                     parser.parse(f)
