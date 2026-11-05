@@ -57,8 +57,8 @@ def make_pdf(*pages: str | bytes | None, flate: bool = False, form: bytes | None
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     resources = b"/Font << /F1 3 0 R >>"
     if form is not None:
-        objs.append(b"<< /Type /XObject /Subtype /Form /BBox [0 0 300 200] /Length %d >>\nstream\n" % len(form)
-                    + form + b"\nendstream")
+        objs.append(b"<< /Type /XObject /Subtype /Form /BBox [0 0 300 200] /Resources << /Font << /F1 3 0 R >> >> "
+                    b"/Length %d >>\nstream\n" % len(form) + form + b"\nendstream")
         resources += b" /XObject << /X0 4 0 R >>"
     kids = []
     for text in pages:
@@ -288,6 +288,26 @@ def test_utf16_xml_without_bom_is_counted(monkeypatch):
     assert e.value.code == "too_long"
 
 
+def test_xml_after_long_leading_whitespace_is_counted(monkeypatch):
+    """선언 없는 XML은 앞에 공백이 얼마든 와도 된다. 앞 64바이트만 보면 놓친다."""
+    body = b" " * 200 + b"<a>" + b"<b/>" * 50 + b"</a>"
+    data = _add_to_zip(make_docx(), "word/media/x.bin", body)
+    monkeypatch.setattr(extract_module, "MAX_XML_ELEMENTS", _xml_elements(make_docx()) + 10)
+    with pytest.raises(FileError) as e:
+        extract("앞공백.docx", data)
+    assert e.value.code == "too_long"
+
+
+def test_extensionless_part_uses_empty_extension():
+    """확장자가 없는 부분의 확장자는 빈 값이다(OPC). 이름 전체를 확장자로 보면 형식 목록과 어긋난다."""
+    def declare(body: bytes) -> bytes:
+        return body.replace(b"</Types>", b'<Default Extension="" ContentType="application/xml"/></Types>')
+    data = _patch_zip(_add_to_zip(make_docx(), "word/noext", b"not xml"), "[Content_Types].xml", declare)
+    with pytest.raises(FileError) as e:
+        extract("확장자없음.docx", data)
+    assert e.value.code == "unreadable"
+
+
 def test_part_declared_xml_in_content_types_must_parse():
     def declare(body: bytes) -> bytes:
         return body.replace(b"</Types>", b'<Override PartName="/word/custom.dat" ContentType="application/xml"/></Types>')
@@ -312,6 +332,24 @@ def test_pdf_char_cap_counts_text_pypdf_has_not_flushed_yet(monkeypatch):
     with pytest.raises(FileError) as e:
         extract("모아두기.pdf", make_pdf(b"BT /F1 12 Tf 20 100 Td " + b"(AAAAAAAAAA) Tj " * 200 + b"ET"))
     assert e.value.code == "too_long" and len(calls) < 20             # Tj 4개째에서 멈춘다
+
+
+def test_pdf_page_text_bytes_cap(monkeypatch):
+    """글자 대응표가 코드 하나를 최대 256글자로 늘릴 수 있으므로, 쪽마다 문자열 바이트에 상한을 둔다."""
+    monkeypatch.setattr(extract_module, "MAX_PAGE_TEXT_BYTES", 100)
+    with pytest.raises(FileError) as e:
+        extract("빽빽.pdf", make_pdf(b"BT /F1 12 Tf 20 100 Td " + b"(AAAAAAAAAA) Tj " * 50 + b"ET"))   # 500바이트
+    assert e.value.code == "too_long"
+    assert extract("보통.pdf", make_pdf("A" * 50, "B" * 50))       # 쪽마다 따로 센다 (50 + 50바이트)
+
+
+def test_pdf_page_text_bytes_cap_survives_swallowing_inside_forms(monkeypatch):
+    """양식 안에서 상한에 걸리면 pypdf가 삼킨다. 쪽의 나머지가 글자 연산자가 아니어도 멈춰야 한다."""
+    monkeypatch.setattr(extract_module, "MAX_PAGE_TEXT_BYTES", 100)
+    form = b"BT /F1 12 Tf 20 100 Td " + b"(AAAAAAAAAA) Tj " * 20 + b"ET"         # 양식 하나에 200바이트
+    with pytest.raises(FileError) as e:
+        extract("양식글자.pdf", make_pdf(b"/X0 Do q Q", form=form))
+    assert e.value.code == "too_long"
 
 
 def test_xml_entity_declaration_refused():
