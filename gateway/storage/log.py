@@ -70,6 +70,9 @@ class RequestRecord:
     decision_latency_ms: float = 0.0
     total_latency_ms: float = 0.0
     llm_error: str | None = None
+    # 파이프라인이 "가리지 못한 개인정보가 남았다"(pii_unmasked)고 알리면 문장을 저장하지 않는다.
+    # 회사별 식별번호처럼 이 모듈의 정규식이 모르는 값도 있어서, 파이프라인의 판단을 그대로 따른다 (D22)
+    withhold_text: bool = False
     unrestored_tokens: int = 0
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds"))
@@ -112,8 +115,9 @@ class RequestLog:
 
     def save(self, record: RequestRecord) -> str:
         row = asdict(record)
+        withhold = row.pop("withhold_text")         # 열이 아니라 저장 지시다
         # NFKC 사본으로 본다: 동그라미 숫자처럼 가리지 못한 표기의 번호도 로그에 남기지 않는다
-        row["text_withheld"] = int(bool(find_pii_compat(record.text_masked)))
+        row["text_withheld"] = int(withhold or bool(find_pii_compat(record.text_masked)))
         if row["text_withheld"]:
             row["text_masked"] = None
         for key in JSON_COLUMNS:

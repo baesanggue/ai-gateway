@@ -3,18 +3,26 @@
 - config.yaml에는 비밀값을 넣지 않는다. API 키는 .env에서만 읽는다 (설계 결정 7번).
 - 비밀값은 SecretStr로 감싸 로그·repr에 키가 찍히지 않게 한다.
 - 다른 설정 파일을 쓰려면 환경변수 AIGW_CONFIG에 경로를 준다.
+- 업종 프리셋(D22): config.yaml의 `preset: shop`이면 config/presets/shop.yaml을 기본값으로 깔고,
+  config.yaml에 직접 적은 값이 그 위를 덮는다. 업종마다 달라지는 것(FAQ, 회사별 식별번호, 시연용 사전)만 프리셋에 둔다
 """
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "config.yaml"
 DEFAULT_ENV = ROOT / ".env"
+PRESETS_DIR = ROOT / "config" / "presets"
+PRESET_NAME = re.compile(r"[a-z][a-z0-9_]{0,30}")
+TOKEN_KIND = re.compile(r"[가-힣A-Za-z_]{1,10}")   # 토큰 [종류N]의 종류. 숫자·괄호는 토큰 번호와 섞여 안 된다
+# 반복 안에 또 반복: "(a+)+" 같은 모양은 긴 입력에서 처리 시간이 폭증한다 (#11 보안 검토와 같은 문제)
+NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]")
 
 
 class GatewayConfig(BaseModel):
@@ -87,10 +95,37 @@ class LLMConfig(BaseModel):
     premium: LLMModelConfig
 
 
+class CustomPattern(BaseModel):
+    """회사별 식별번호 정규식 (#38). 예: 병원 차트번호 C + 8자리 → [차트번호1]. 프리셋이나 config.yaml에 적는다."""
+    kind: str        # 토큰 이름
+    pattern: str     # 정규식. 숫자는 [0-9]로 쓴다 (\d는 모든 문자권 숫자를 받는다)
+
+    @field_validator("kind")
+    @classmethod
+    def _kind(cls, v: str) -> str:
+        if not TOKEN_KIND.fullmatch(v):
+            raise ValueError("kind는 한글·영문 10자 이내여야 한다 (토큰 [종류N]의 종류)")
+        return v
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern(cls, v: str) -> str:
+        if len(v) > 200:
+            raise ValueError("정규식이 너무 길다 (200자 이내)")
+        if NESTED_QUANTIFIER.search(v):
+            raise ValueError("반복 안에 반복이 있는 정규식은 받지 않는다 (긴 입력에서 처리 시간이 폭증한다)")
+        try:
+            re.compile(v)
+        except re.error as e:
+            raise ValueError(f"정규식 오류: {e}") from e
+        return v
+
+
 class MaskingConfig(BaseModel):
     user_dictionary_path: str
-    # 시연용 가상 사전 (커밋됨). 시연할 때 user_dictionary_path로 복사해 쓴다. 그 상태면 경고·/healthz 표시 (D21)
-    example_dictionary_path: str = "config/user_dictionary.example.txt"
+    # 시연용 가상 사전 (커밋됨, 업종 프리셋이 정한다). 시연할 때 user_dictionary_path로 복사해 쓴다 (D21)
+    example_dictionary_path: str = "config/presets/shop.dictionary.example.txt"
+    custom_patterns: list[CustomPattern] = []
 
 
 class StorageConfig(BaseModel):
@@ -98,6 +133,7 @@ class StorageConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    preset: str | None = None        # 업종 프리셋 이름 (config/presets/<이름>.yaml, D22)
     security_level: Literal["basic", "strict", "local"] = "basic"
     gateway: GatewayConfig = GatewayConfig()
     decision: DecisionConfig
@@ -126,6 +162,25 @@ class Settings(BaseModel):
 
 def load_settings(config_path: Path | None = None, env_file: Path | None = None) -> Settings:
     path = Path(config_path or os.environ.get("AIGW_CONFIG") or DEFAULT_CONFIG)
-    config = AppConfig.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if raw.get("preset"):
+        raw = _merge(load_preset(raw["preset"]), raw)     # 프리셋이 바탕, config.yaml이 위
+    config = AppConfig.model_validate(raw)
     secrets = Secrets(_env_file=env_file or DEFAULT_ENV)
     return Settings(config=config, secrets=secrets)
+
+
+def load_preset(name: str) -> dict:
+    """업종 프리셋을 읽는다. 없는 이름이면 시작하지 않는다 (있는 프리셋을 알려 준다)."""
+    available = sorted(p.stem for p in PRESETS_DIR.glob("*.yaml"))
+    if not PRESET_NAME.fullmatch(str(name)) or not (PRESETS_DIR / f"{name}.yaml").exists():
+        raise ValueError(f"업종 프리셋 '{name}'이(가) 없다. 쓸 수 있는 프리셋: {', '.join(available)}")
+    return yaml.safe_load((PRESETS_DIR / f"{name}.yaml").read_text(encoding="utf-8")) or {}
+
+
+def _merge(base: dict, over: dict) -> dict:
+    """over가 base를 덮는다. 둘 다 dict인 값은 안쪽까지 합치고, 목록·값은 통째로 바꾼다."""
+    out = dict(base)
+    for key, value in over.items():
+        out[key] = _merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out

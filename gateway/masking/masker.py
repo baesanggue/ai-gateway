@@ -75,8 +75,11 @@ class RuleMasker:
 
     available = True
 
-    def __init__(self, entries: list[Entry], dictionary_source: str = "custom"):
+    def __init__(self, entries: list[Entry], dictionary_source: str = "custom",
+                 custom_patterns: list[tuple[str, re.Pattern[str]]] = ()):
         self.dictionary_source = dictionary_source     # "custom"(회사 사전) | "example"(시연용 사전 복사본) → /healthz
+        # 회사별 식별번호 (#38, 업종 프리셋): (토큰 종류, 정규식). 기본 정규식보다 먼저 본다 (더 구체적이다)
+        self.custom_patterns = list(custom_patterns)
         # 사전 값 전체를 정규식 하나로: 긴 값부터(같은 위치에서 "김민수진"이 "김민수"보다 먼저), 대소문자 무시
         values = sorted({normalize_text(e.value) for e in entries}, key=len, reverse=True)
         self.kinds = {}
@@ -90,7 +93,8 @@ class RuleMasker:
     @classmethod
     def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
         entries, _, is_example = load_dictionary(cfg)    # 사전이 없으면 DictionaryMissing (시작하지 않는다, D21)
-        return cls(entries, "example" if is_example else "custom")
+        custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]   # 설정에서 이미 검증했다
+        return cls(entries, "example" if is_example else "custom", custom)
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
         # 입력에 이미 있는 토큰 모양의 번호는 쓰지 않는다. 복원은 바꿔 쓴 모양([고객 1], 고객1님)도 되돌리므로 그 모양도 센다
@@ -118,6 +122,8 @@ class RuleMasker:
             text = normalize_text(msg["content"])
             if self.names is not None:
                 text = self.names.sub(lambda m: token(self._kind(m.group()), m.group()), text)
+            for kind, pattern in self.custom_patterns:
+                text = pattern.sub(lambda m, k=kind: token(k, m.group()), text)
             for kind, pattern in PATTERNS:
                 text = pattern.sub(lambda m, k=kind: m.group() if is_date(k, m.group()) else token(k, m.group()), text)
             out.append({**msg, "content": text})
@@ -126,6 +132,7 @@ class RuleMasker:
         for msg in out:
             copy = compat_copy(msg["content"])
             unmasked += find_pii(copy)
+            unmasked += [kind for kind, pattern in self.custom_patterns for _ in pattern.finditer(copy)]
             if self.names_compat is not None:
                 unmasked += [self._kind(m.group()) for m in self.names_compat.finditer(copy)]
         return MaskResult(out, mapping, counts, unmasked)

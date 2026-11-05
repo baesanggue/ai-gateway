@@ -17,7 +17,7 @@ from gateway.masking.patterns import PATTERNS
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_KEY = "sk-test-only-not-a-real-key"
-DEMO_DICTIONARY = ROOT / "config" / "user_dictionary.example.txt"
+DEMO_DICTIONARY = ROOT / "config" / "presets" / "shop.dictionary.example.txt"
 
 
 def test_settings(tmp_path, extra_env=""):
