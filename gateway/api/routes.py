@@ -7,14 +7,19 @@
   프로그램은 차단됐다는 것을 알 수 있다
 - LLM 오류: OpenAI 형식 502. 메시지에 상위 오류 내용을 넣지 않는다 (로그에는 오류 code가 남는다)
 """
+import base64
+import binascii
 import hmac
 import ipaddress
+from dataclasses import asdict
 from typing import get_args
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from gateway.files.extract import FileError
+from gateway.files.scan import scan, summary
 from gateway.api.schemas import (
     AssistantMessage,
     ChatCompletionRequest,
@@ -22,6 +27,7 @@ from gateway.api.schemas import (
     Choice,
     ErrorDetail,
     ErrorResponse,
+    FileScanRequest,
     Usage,
 )
 
@@ -117,3 +123,24 @@ def chat_completions(req: ChatCompletionRequest, request: Request):
                     total_tokens=usage.prompt_tokens + usage.completion_tokens) if usage else Usage(),
     )
     return JSONResponse(body.model_dump(), headers=headers)
+
+
+@router.post("/v1/files/scan")
+def scan_file(req: FileScanRequest, request: Request):
+    """파일 속 개인정보 검사 (#50). 게이트웨이 키 규칙은 채팅과 같다. 결과에 값은 넣지 않는다.
+    가명화 부품이 가명화를 못 하는 부품이면 검사하지 않는다 (규칙이 없으면 "없음"이라고 잘못 안내하게 된다)."""
+    if (denied := authorize(request)) is not None:
+        return denied
+    masker = request.app.state.gateway.masker
+    if not getattr(masker, "available", False):
+        return openai_error(503, "가명화 규칙이 준비되지 않아 파일을 검사할 수 없습니다.", code="masking_unavailable",
+                            type_="api_error")
+    try:
+        data = base64.b64decode(req.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return openai_error(400, "content_base64가 올바른 base64가 아닙니다.", param="content_base64", code="invalid_file")
+    try:
+        report = scan(req.filename, data, masker)
+    except FileError as e:
+        return openai_error(400, str(e), param="filename" if e.code == "unsupported" else None, code=e.code)
+    return {"has_pii": report.has_pii, "summary": summary(report), **asdict(report)}
