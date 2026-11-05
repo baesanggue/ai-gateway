@@ -7,11 +7,16 @@
   - 크기 상한, 파일 앞부분으로 형식 확인(이름만 바꾼 파일을 깊이 읽지 않는다)
   - docx·xlsx는 zip이라 압축 폭탄을 검사한다: 풀린 크기 합, 압축률, 항목 수
   - XML 외부 엔티티를 풀지 않는다: python-docx는 resolve_entities=False, openpyxl은 defusedxml을 쓴다
+  - docx·xlsx 안 XML은 파싱 전에 트리를 만들지 않고 훑어서 요소 수·셀 수·한 행의 칸 수를 센다
+    (파서는 한 행을 통째로 메모리에 올린 뒤 넘겨 주므로, 넘겨받은 뒤에 세면 늦다)
   - PDF 안의 압축된 데이터도 풀린 크기에 상한을 둔다 (pypdf 설정, 이 함수 안에서만)
-  - 쪽·셀·글자 수 상한은 다 읽은 뒤가 아니라 **읽는 도중에** 확인한다. 엑셀은 빈 칸·빈 행도 센다
+  - 쪽·셀·글자 수·시간 상한은 다 읽은 뒤가 아니라 **읽는 도중에** 확인한다
+    - PDF는 pypdf가 연산자·글자 조각마다 부르는 함수로 한 쪽 안에서도 본다
+    - 엑셀은 빈 칸·빈 행도 센다
 """
 import io
 import time
+import xml.sax.handler
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +25,15 @@ MAX_BYTES = 10 * 1024 * 1024          # 올릴 수 있는 파일 크기
 MAX_UNZIPPED = 100 * 1024 * 1024      # docx·xlsx를 풀었을 때 크기 합
 MAX_RATIO = 100                       # 풀린 크기 ÷ 파일 크기
 MAX_ZIP_ENTRIES = 5_000
+MAX_XML_ELEMENTS = 1_500_000          # docx·xlsx 안 XML 요소 수 합 (셀 20만 개짜리 엑셀이 약 85만)
 MAX_STREAM_BYTES = 20 * 1024 * 1024   # PDF 안의 압축된 데이터 하나를 풀었을 때 크기 (pypdf 기본값 75MB)
-MAX_PDF_SECONDS = 30                  # PDF 글자 뽑기 시간 (쪽을 넘길 때마다 확인)
+MAX_PDF_SECONDS = 30                  # PDF 글자 뽑기 시간 (연산자마다 확인)
 MAX_PAGES = 500
 MAX_CELLS = 200_000                   # 엑셀에서 도는 칸 수 (빈 칸 포함, 빈 행은 1칸)
+MAX_COLUMNS = 16_384                  # 엑셀의 마지막 열 XFD
 MAX_CHARS = 2_000_000
 SUPPORTED = (".pdf", ".docx", ".xlsx", ".txt", ".csv")
+_clock = time.monotonic                # 테스트에서 바꿔 끼운다
 
 
 @dataclass
@@ -80,12 +88,34 @@ def _pdf_limits() -> dict[str, int]:
     }
 
 
+class _PdfGuard:
+    """한 쪽 안에서도 시간·글자 상한을 본다. pypdf가 연산자마다 check, 글자 조각마다 count를 부른다.
+
+    pypdf는 양식 객체(XObject) 안에서 난 예외를 삼키고 계속한다. 그래도 상태가 남아 있어
+    바깥 쪽의 다음 연산자에서 다시 걸리고, 거기서는 예외가 그대로 올라온다.
+    """
+
+    def __init__(self):
+        self.deadline = _clock() + MAX_PDF_SECONDS
+        self.chars = 0
+
+    def check(self, *_) -> None:
+        if _clock() > self.deadline:
+            raise FileError("too_long", f"PDF를 읽는 데 너무 오래 걸립니다 ({MAX_PDF_SECONDS}초까지)")
+        if self.chars > MAX_CHARS:
+            raise _too_many_chars()
+
+    def count(self, text, *_) -> None:
+        self.chars += len(text)
+        self.check()
+
+
 def _pdf(data: bytes) -> list[Segment]:
     from pypdf import PdfReader, apply_configuration
     from pypdf.errors import LimitReachedError, PyPdfError
     if not data.startswith(b"%PDF"):
         raise FileError("unreadable", "PDF 파일이 아닙니다.")
-    out, chars, deadline = [], 0, time.monotonic() + MAX_PDF_SECONDS
+    out, chars, guard = [], 0, _PdfGuard()
     try:
         with apply_configuration(**_pdf_limits()):   # 이 블록 안에서만 적용된다 (contextvar)
             reader = PdfReader(io.BytesIO(data))
@@ -94,12 +124,11 @@ def _pdf(data: bytes) -> list[Segment]:
             if len(reader.pages) > MAX_PAGES:
                 raise FileError("too_long", f"쪽 수가 너무 많습니다 ({MAX_PAGES}쪽까지)")
             for i, page in enumerate(reader.pages, 1):
-                if time.monotonic() > deadline:
-                    raise FileError("too_long", f"PDF를 읽는 데 너무 오래 걸립니다 ({MAX_PDF_SECONDS}초까지)")
-                text = page.extract_text() or ""
+                guard.check()
+                text = page.extract_text(visitor_operand_before=guard.check, visitor_text=guard.count) or ""
                 chars += len(text)
-                if chars > MAX_CHARS:                # 남은 쪽을 더 읽지 않는다
-                    raise _too_many_chars()
+                guard.chars = chars                  # 조각 합 대신 실제 길이로 맞춘다
+                guard.check()                        # 양식 객체 안에서 걸려 삼켜졌어도 여기서 멈춘다
                 out.append(Segment(f"{i}쪽", text))
     except FileError:
         raise
@@ -121,6 +150,56 @@ def _check_zip(data: bytes) -> None:
     unzipped = sum(i.file_size for i in infos)
     if len(infos) > MAX_ZIP_ENTRIES or unzipped > MAX_UNZIPPED or unzipped > MAX_RATIO * max(len(data), 1):
         raise FileError("zip_bomb", "압축을 풀면 지나치게 커지는 파일이라 검사하지 않습니다.")
+    _count_xml(data, infos)
+
+
+class _XmlCounter(xml.sax.handler.ContentHandler):
+    """XML 요소를 트리 없이 센다. 상한을 넘으면 그 자리에서 멈춘다."""
+
+    def __init__(self):
+        super().__init__()
+        self.elements = self.cells = self.row_cells = 0
+
+    def startElement(self, name, attrs):
+        local = name.rpartition(":")[2]
+        self.elements += 1
+        if local == "row":
+            self.row_cells = 0
+        elif local == "c":                           # 엑셀 셀
+            self.cells += 1
+            self.row_cells += 1
+        if self.elements > MAX_XML_ELEMENTS or self.cells > MAX_CELLS:
+            raise FileError("too_long", "문서 구조가 너무 커서 검사하지 않습니다.")
+        if self.row_cells > MAX_COLUMNS:
+            raise FileError("unreadable", f"엑셀 한 행에 칸이 {MAX_COLUMNS:,}개(XFD열)보다 많습니다.")
+
+
+def _looks_like_xml(head: bytes) -> bool:
+    return head.startswith((b"\xff\xfe", b"\xfe\xff")) or head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<")
+
+
+def _count_xml(data: bytes, infos: list[zipfile.ZipInfo]) -> None:
+    """docx·xlsx 안 XML 부분을 파서가 읽기 전에 훑는다. 이름이 아니라 내용 앞부분으로 XML을 고른다.
+    defusedxml이라 엔티티 선언·외부 참조가 있으면 멈춘다. 훑지 못한 XML은 읽지 않는다(실패 시 닫힘)."""
+    import defusedxml.sax
+    from defusedxml import DefusedXmlException
+    counter = _XmlCounter()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for info in infos:
+                if info.is_dir():
+                    continue
+                with z.open(info) as f:
+                    if not _looks_like_xml(f.peek(64)[:64]):
+                        continue                     # 이미지 등
+                    parser = defusedxml.sax.make_parser()
+                    parser.setContentHandler(counter)
+                    parser.parse(f)
+    except FileError:
+        raise
+    except (xml.sax.SAXException, DefusedXmlException, zipfile.BadZipFile, NotImplementedError, RuntimeError,
+            OSError, EOFError) as e:
+        raise FileError("unreadable", f"파일 안의 XML을 읽지 못했습니다 ({type(e).__name__}).") from e
 
 
 def _docx(data: bytes) -> list[Segment]:
@@ -158,6 +237,8 @@ def _xlsx(data: bytes) -> list[Segment]:
                 visited += max(len(row), 1)        # 빈 칸·빈 행도 센다: 값이 없어도 도는 시간은 든다
                 if visited > MAX_CELLS:
                     raise FileError("too_long", f"셀이 너무 많습니다 ({MAX_CELLS:,}칸까지, 빈 칸 포함)")
+                if len(row) > MAX_COLUMNS:          # 셀 주소가 XFD열을 넘는다 (ZZZ1 같은 주소)
+                    raise FileError("unreadable", f"엑셀 한 행에 칸이 {MAX_COLUMNS:,}개(XFD열)보다 많습니다.")
                 for c, value in enumerate(row, 1):
                     if value is None:
                         continue
@@ -166,6 +247,10 @@ def _xlsx(data: bytes) -> list[Segment]:
                     if chars > MAX_CHARS:
                         raise _too_many_chars()
                     out.append(Segment(f"'{ws.title}' 시트 {get_column_letter(c)}{r}", text))
+    except FileError:
+        raise
+    except Exception as e:        # 손상된 시트는 읽는 도중에도 여러 종류의 예외를 낸다 (500 대신 안내)
+        raise FileError("unreadable", f"엑셀 파일을 읽지 못했습니다 ({type(e).__name__}).") from e
     finally:
         wb.close()
     return out
