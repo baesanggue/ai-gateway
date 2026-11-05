@@ -88,3 +88,10 @@ class ErrorResponse(BaseModel):
     """OpenAI 형식 오류 본문. SDK가 이 형식을 읽어 예외 메시지를 만든다."""
 
     error: ErrorDetail
+
+
+class FileScanRequest(BaseModel):
+    """파일 검사 요청 (#50): 파일 이름(형식을 정한다)과 base64로 바꾼 내용. 내용은 이 PC 밖으로 나가지 않는다."""
+
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=14_000_000)   # 10MB 파일의 base64 ≈ 13.4MB
