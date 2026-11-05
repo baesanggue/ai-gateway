@@ -2,13 +2,16 @@
 import base64
 import io
 import zipfile
+import zlib
 
 import docx
 import httpx
 import openpyxl
+import pypdf
 import pytest
 from fastapi.testclient import TestClient
 
+from gateway.files import extract as extract_module
 from gateway.files.extract import FileError, extract
 from gateway.files.scan import scan, summary
 from gateway.main import create_app
@@ -47,17 +50,23 @@ def make_xlsx() -> bytes:
     return buf.getvalue()
 
 
-def make_pdf(text: str | None) -> bytes:
-    """글자 층이 있는(text) 또는 없는(None, 스캔 PDF처럼) 한 쪽짜리 PDF. 표준 글꼴이라 영문·숫자만 쓴다."""
-    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>"]
-    if text is None:
-        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>")
-    else:
-        stream = f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode("latin-1")
-        objs += [b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R "
-                 b"/Resources << /Font << /F1 5 0 R >> >> >>",
-                 b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
-                 b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+def make_pdf(*pages: str | None, flate: bool = False) -> bytes:
+    """쪽마다 글자 층이 있는(str) 또는 없는(None, 스캔 PDF처럼) PDF. 표준 글꼴이라 영문·숫자만 쓴다.
+    flate=True면 쪽 내용을 zlib으로 압축한다 (압축 폭탄 시험용)."""
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for text in pages:
+        kids.append(len(objs) + 1)
+        if text is None:
+            objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>")
+            continue
+        stream, extra = f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode("latin-1"), b""
+        if flate:
+            stream, extra = zlib.compress(stream, 9), b" /Filter /FlateDecode"
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents %d 0 R "
+                    b"/Resources << /Font << /F1 3 0 R >> >> >>" % (len(objs) + 2))
+        objs.append(b"<< /Length %d%s >>\nstream\n" % (len(stream), extra) + stream + b"\nendstream")
+    objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(pages))
     out, offsets = b"%PDF-1.4\n", []
     for i, o in enumerate(objs, 1):
         offsets.append(len(out))
@@ -120,6 +129,65 @@ def test_zip_bomb_is_refused_before_parsing():
     with pytest.raises(FileError) as e:
         extract("폭탄.docx", buf.getvalue())
     assert e.value.code == "zip_bomb"
+
+
+# ── 읽는 도중의 상한 (보안 검토: 다 읽은 뒤에 세면 그 전에 시간·메모리가 먼저 든다) ──
+
+def _set_dimension(xlsx: bytes, ref: str) -> bytes:
+    """시트 XML에 적힌 크기(<dimension ref=…>)만 바꾼다. 실제 칸은 그대로."""
+    src, dst = zipfile.ZipFile(io.BytesIO(xlsx)), io.BytesIO()
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+        for info in src.infolist():
+            body = src.read(info)
+            if info.filename == "xl/worksheets/sheet1.xml":
+                start = body.index(b"<dimension ref=\"") + len(b"<dimension ref=\"")
+                body = body[:start] + ref.encode() + body[body.index(b"\"", start):]
+            z.writestr(info.filename, body)
+    return dst.getvalue()
+
+
+def test_xlsx_ignores_declared_sheet_size(monkeypatch):
+    """A1:XFD1048576(약 170억 칸)이라고 적힌 시트도 실제로 있는 칸만 돈다.
+    적힌 크기를 믿으면 한 행이 16,384칸이 되어 상한(1,000칸)을 첫 행에서 넘는다."""
+    monkeypatch.setattr(extract_module, "MAX_CELLS", 1_000)
+    segments = extract("큰척.xlsx", _set_dimension(make_xlsx(), "A1:XFD1048576"))
+    assert [s.where for s in segments][:3] == ["'고객' 시트 A1", "'고객' 시트 B1", "'고객' 시트 C1"]
+
+
+def test_xlsx_counts_empty_rows_toward_cell_cap():
+    wb = openpyxl.Workbook()
+    wb.active["A1"], wb.active["A1000000"] = "이름", "x"       # 사이의 빈 행 100만 개
+    buf = io.BytesIO()
+    wb.save(buf)
+    with pytest.raises(FileError) as e:
+        extract("빈행.xlsx", buf.getvalue())
+    assert e.value.code == "too_long"
+
+
+def test_pdf_char_cap_stops_before_reading_remaining_pages(monkeypatch):
+    calls = []
+    original = pypdf.PageObject.extract_text
+    monkeypatch.setattr(pypdf.PageObject, "extract_text", lambda self, *a, **k: calls.append(1) or original(self, *a, **k))
+    monkeypatch.setattr(extract_module, "MAX_CHARS", 10)
+    with pytest.raises(FileError) as e:
+        extract("긴문서.pdf", make_pdf("A" * 50, "B" * 50, "C" * 50))
+    assert e.value.code == "too_long" and len(calls) == 1          # 1쪽에서 넘었으니 2·3쪽은 읽지 않는다
+
+
+def test_pdf_decompression_cap(monkeypatch):
+    monkeypatch.setattr(extract_module, "MAX_STREAM_BYTES", 1_000)
+    data = make_pdf("0" * 50_000, flate=True)                       # 수십 바이트가 5만 바이트로 풀린다
+    assert len(data) < 2_000
+    with pytest.raises(FileError) as e:
+        extract("폭탄.pdf", data)
+    assert e.value.code == "zip_bomb"
+
+
+def test_pdf_time_cap_checked_between_pages(monkeypatch):
+    monkeypatch.setattr(extract_module, "MAX_PDF_SECONDS", -1)      # 이미 시간을 다 쓴 상태
+    with pytest.raises(FileError) as e:
+        extract("느린.pdf", make_pdf("Contact 010-9876-5432"))
+    assert e.value.code == "too_long"
 
 
 # ── API ──────────────────────────────────────────────────────
