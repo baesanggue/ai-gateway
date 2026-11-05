@@ -50,21 +50,28 @@ def make_xlsx() -> bytes:
     return buf.getvalue()
 
 
-def make_pdf(*pages: str | None, flate: bool = False) -> bytes:
-    """쪽마다 글자 층이 있는(str) 또는 없는(None, 스캔 PDF처럼) PDF. 표준 글꼴이라 영문·숫자만 쓴다.
-    flate=True면 쪽 내용을 zlib으로 압축한다 (압축 폭탄 시험용)."""
+def make_pdf(*pages: str | bytes | None, flate: bool = False, form: bytes | None = None) -> bytes:
+    """쪽마다 글자 층이 있는(str) 또는 없는(None, 스캔 PDF처럼) PDF. bytes는 쪽 내용 스트림 그대로.
+    표준 글꼴이라 영문·숫자만 쓴다. flate=True면 쪽 내용을 zlib으로 압축한다 (압축 폭탄 시험용).
+    form을 주면 모든 쪽에서 /X0 Do로 불러 쓸 수 있는 양식 객체(XObject)가 된다."""
     objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"", b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    resources = b"/Font << /F1 3 0 R >>"
+    if form is not None:
+        objs.append(b"<< /Type /XObject /Subtype /Form /BBox [0 0 300 200] /Length %d >>\nstream\n" % len(form)
+                    + form + b"\nendstream")
+        resources += b" /XObject << /X0 4 0 R >>"
     kids = []
     for text in pages:
         kids.append(len(objs) + 1)
         if text is None:
             objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>")
             continue
-        stream, extra = f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode("latin-1"), b""
+        stream = text if isinstance(text, bytes) else f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode("latin-1")
+        extra = b""
         if flate:
             stream, extra = zlib.compress(stream, 9), b" /Filter /FlateDecode"
         objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents %d 0 R "
-                    b"/Resources << /Font << /F1 3 0 R >> >> >>" % (len(objs) + 2))
+                    b"/Resources << %s >> >>" % (len(objs) + 2, resources))
         objs.append(b"<< /Length %d%s >>\nstream\n" % (len(stream), extra) + stream + b"\nendstream")
     objs[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(b"%d 0 R" % k for k in kids), len(pages))
     out, offsets = b"%PDF-1.4\n", []
@@ -133,17 +140,24 @@ def test_zip_bomb_is_refused_before_parsing():
 
 # ── 읽는 도중의 상한 (보안 검토: 다 읽은 뒤에 세면 그 전에 시간·메모리가 먼저 든다) ──
 
-def _set_dimension(xlsx: bytes, ref: str) -> bytes:
-    """시트 XML에 적힌 크기(<dimension ref=…>)만 바꾼다. 실제 칸은 그대로."""
-    src, dst = zipfile.ZipFile(io.BytesIO(xlsx)), io.BytesIO()
-    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:
+def _patch_zip(data: bytes, name: str, fn) -> bytes:
+    """zip 안 파일 하나의 내용을 fn으로 바꾼다. 압축률 검사에 먼저 걸리지 않게 압축하지 않고 저장한다."""
+    src, dst = zipfile.ZipFile(io.BytesIO(data)), io.BytesIO()
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_STORED) as z:
         for info in src.infolist():
             body = src.read(info)
-            if info.filename == "xl/worksheets/sheet1.xml":
-                start = body.index(b"<dimension ref=\"") + len(b"<dimension ref=\"")
-                body = body[:start] + ref.encode() + body[body.index(b"\"", start):]
-            z.writestr(info.filename, body)
+            z.writestr(info.filename, fn(body) if info.filename == name else body)
     return dst.getvalue()
+
+
+def _between(body: bytes, start: bytes, end: bytes, new: bytes) -> bytes:
+    i = body.index(start) + len(start)
+    return body[:i] + new + body[body.index(end, i):]
+
+
+def _set_dimension(xlsx: bytes, ref: str) -> bytes:
+    """시트 XML에 적힌 크기(<dimension ref=…>)만 바꾼다. 실제 칸은 그대로."""
+    return _patch_zip(xlsx, "xl/worksheets/sheet1.xml", lambda b: _between(b, b'<dimension ref="', b'"', ref.encode()))
 
 
 def test_xlsx_ignores_declared_sheet_size(monkeypatch):
@@ -188,6 +202,77 @@ def test_pdf_time_cap_checked_between_pages(monkeypatch):
     with pytest.raises(FileError) as e:
         extract("느린.pdf", make_pdf("Contact 010-9876-5432"))
     assert e.value.code == "too_long"
+
+
+def _ticking_clock(monkeypatch) -> list:
+    """부를 때마다 1초가 지나는 시계. 몇 번 불렸는지 = 몇 번 확인했는지."""
+    calls = []
+    monkeypatch.setattr(extract_module, "_clock", lambda: calls.append(1) or len(calls))
+    return calls
+
+
+def test_pdf_time_cap_checked_inside_a_page(monkeypatch):
+    calls = _ticking_clock(monkeypatch)
+    monkeypatch.setattr(extract_module, "MAX_PDF_SECONDS", 50)
+    with pytest.raises(FileError) as e:
+        extract("느린쪽.pdf", make_pdf(b"q Q " * 1_000))                # 글자 없는 연산자 2,000개짜리 한 쪽
+    assert e.value.code == "too_long" and len(calls) < 60           # 연산자마다 확인해서 쪽 중간에 멈춘다
+
+
+def test_pdf_char_cap_checked_inside_a_page(monkeypatch):
+    calls = _ticking_clock(monkeypatch)
+    monkeypatch.setattr(extract_module, "MAX_PDF_SECONDS", 10**9)
+    monkeypatch.setattr(extract_module, "MAX_CHARS", 30)
+    block = b"BT /F1 12 Tf 20 100 Td (AAAAAAAAAA) Tj ET\n"               # 연산자 5개, 10자
+    with pytest.raises(FileError) as e:
+        extract("긴쪽.pdf", make_pdf(block * 200))                      # 한 쪽에 2,000자
+    assert e.value.code == "too_long"
+    assert 10 < len(calls) < 100        # 연산자마다 확인했고(쪽이 끝난 뒤 한 번이 아니라), 1,000개를 다 돌기 전에 멈췄다
+
+
+def test_pdf_time_cap_survives_pypdf_swallowing_errors_inside_forms(monkeypatch):
+    """한 양식 객체를 500번 불러 쓰는 쪽. pypdf는 양식 안에서 난 예외를 삼키지만, 바깥 쪽의 다음 연산자에서 다시 걸린다."""
+    calls = _ticking_clock(monkeypatch)
+    monkeypatch.setattr(extract_module, "MAX_PDF_SECONDS", 50)
+    with pytest.raises(FileError) as e:
+        extract("양식반복.pdf", make_pdf(b"/X0 Do " * 500, form=b"q Q " * 20))   # 양식 하나에 연산자 40개
+    assert e.value.code == "too_long" and len(calls) < 100           # 양식 500번(연산자 2만 개)을 다 돌지 않았다
+
+
+def _sheet_rows(rows: bytes) -> bytes:
+    return _patch_zip(make_xlsx(), "xl/worksheets/sheet1.xml", lambda b: _between(b, b"<sheetData>", b"</sheetData>", rows))
+
+
+def test_xlsx_row_wider_than_xfd_refused_before_parsing(monkeypatch):
+    """주소 없는 칸 2만 개짜리 한 행. 파서는 한 행을 통째로 만든 뒤 넘겨 주므로 그 전에 막아야 한다."""
+    opened, original = [], openpyxl.load_workbook
+    monkeypatch.setattr(openpyxl, "load_workbook", lambda *a, **k: opened.append(1) or original(*a, **k))
+    with pytest.raises(FileError) as e:
+        extract("넓은행.xlsx", _sheet_rows(b'<row r="1">' + b"<c><v>1</v></c>" * 20_000 + b"</row>"))
+    assert e.value.code == "unreadable" and opened == []           # 엑셀 파서까지 가지 않았다
+
+
+def test_xlsx_cell_address_past_xfd_refused():
+    """칸은 하나지만 주소가 ZZZ1(18,278열)이다. 엑셀에는 없는 열이다."""
+    with pytest.raises(FileError) as e:
+        extract("먼열.xlsx", _sheet_rows(b'<row r="1"><c r="ZZZ1"><v>1</v></c></row>'))
+    assert e.value.code == "unreadable"
+
+
+def test_xml_element_cap_applies_to_docx(monkeypatch):
+    monkeypatch.setattr(extract_module, "MAX_XML_ELEMENTS", 50)
+    with pytest.raises(FileError) as e:
+        extract("고객기록.docx", make_docx())
+    assert e.value.code == "too_long"
+
+
+def test_xml_entity_declaration_refused():
+    def add_entity(body: bytes) -> bytes:
+        end = body.index(b"?>") + 2                                  # <?xml …?> 뒤
+        return body[:end] + b'<!DOCTYPE w:document [<!ENTITY a "b">]>' + body[end:]
+    with pytest.raises(FileError) as e:
+        extract("엔티티.docx", _patch_zip(make_docx(), "word/document.xml", add_entity))
+    assert e.value.code == "unreadable"
 
 
 # ── API ──────────────────────────────────────────────────────
