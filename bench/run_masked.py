@@ -8,9 +8,10 @@ config.yaml 기준값·질문)으로 다시 잰다.
   A  테스트셋 가상 이름 32개를 모두 등록 (회사가 고객을 다 등록한 경우)
   B  시연용 가상 사전만 (이름 4개. 나머지 이름은 가명화 뒤에도 남는다 → "남은 개인정보" 재현율을 잰다)
 로컬 판단 입력 (가명화된 문장을 로컬 판단에 줄 때)
-  token  [고객1] 그대로 (지금 제품)
-  word   [고객1] → 고객
-  drop   토큰을 지운다
+  token    [고객1] 그대로 (지금 제품)
+  word     [고객1] → 고객
+  drop     토큰을 지운다
+  token_q  [고객1] 그대로 + 남은 개인정보 질문 문장을 "가명 토큰이 아니라 …"로 바꾼다 (원본 필요 질문에서 효과가 있던 형식)
 
 실행:
   uv run python bench/run_masked.py local   --out-dir bench/results/masked-2026-11-06
@@ -31,6 +32,7 @@ from run_judges import NAMES  # noqa: E402  (테스트셋에 쓰인 가상 이�
 from spike_laya import truths  # noqa: E402  (라벨 → 질문별 정답. 저장소 최상위를 경로에 넣는다)
 
 from gateway.config import Settings, load_settings  # noqa: E402
+from gateway.decision.questions import QUESTIONS, Question  # noqa: E402
 from gateway.decision.service import DecisionService, JudgeResult  # noqa: E402
 from gateway.masking.dictionary import Entry, parse  # noqa: E402
 from gateway.masking.masker import RuleMasker  # noqa: E402
@@ -38,7 +40,9 @@ from gateway.masking.masker import RuleMasker  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 TESTSET = ROOT / "data" / "testset.csv"
 CONDITIONS = ("A", "B")
-VARIANTS = ("token", "word", "drop")
+VARIANTS = ("token", "word", "drop", "token_q")
+RESIDUAL_PII = ("이 요청에 [고객1]·[전화번호1] 같은 가명 토큰이 아니라, 가려지지 않은 실제 개인정보"
+                "(사람 이름, 전화번호, 이메일, 주민등록번호, 카드번호, 계좌번호, 주소)가 그대로 들어 있는가?")
 TOKEN_KIND = re.compile(r"\[(\D+?)\d+\]")        # 가명화 부품이 만든 토큰 [종류N]에서 종류
 TYPE_KIND = {"phone": "전화번호", "email": "이메일", "rrn": "주민번호", "card": "카드번호",
              "account": "계좌번호", "address": "주소"}
@@ -75,7 +79,7 @@ def masker_for(condition: str, settings: Settings) -> RuleMasker:
 
 def local_text(text: str, mapping: dict[str, str], variant: str) -> str:
     """로컬 판단에 줄 문장. 이번 가명화가 만든 토큰만 바꾼다 (입력에 원래 있던 [고객1] 같은 글자는 그대로)."""
-    if variant == "token":
+    if variant in ("token", "token_q"):
         return text
     for token in sorted(mapping, key=len, reverse=True):       # [고객10]을 [고객1]보다 먼저
         text = text.replace(token, TOKEN_KIND.fullmatch(token).group(1) if variant == "word" else "")
@@ -123,9 +127,19 @@ def _write(path: Path, records: list[dict]) -> None:
 
 
 # ---------- 측정 ----------
+def judge_local(service: DecisionService, text: str, variant: str) -> JudgeResult:
+    """제품과 같은 로컬 판단. token_q만 남은 개인정보 질문 문장을 바꾼다 (기준값 적용은 제품 코드 그대로)."""
+    if variant != "token_q":
+        return service.judge_local(text)
+    questions = {"has_pii": Question("noul", RESIDUAL_PII), "is_confidential": QUESTIONS["is_confidential"]}
+    r = service.local.decide(text, questions)
+    return JudgeResult("local", service.local.model, {q: service._judgment(q, a) for q, a in r.answers.items()},
+                       r.latency_ms)
+
+
 def run_local(settings: Settings, service: DecisionService, rows: list[dict], out: Path) -> None:
     service.judge_local("예열")
-    cache: dict[str, JudgeResult] = {}
+    cache: dict[tuple[str, bool], JudgeResult] = {}
     records = []
     for cond in CONDITIONS:
         masker = masker_for(cond, settings)
@@ -135,8 +149,9 @@ def run_local(settings: Settings, service: DecisionService, rows: list[dict], ou
             left, other = residual(row, masked, m.mapping)
             for variant in VARIANTS:
                 text = local_text(masked, m.mapping, variant)
-                cached = text in cache
-                r = cache[text] if cached else cache.setdefault(text, service.judge_local(text))
+                key = (text, variant == "token_q")
+                cached = key in cache
+                r = cache[key] if cached else cache.setdefault(key, judge_local(service, text, variant))
                 records.append({
                     "condition": cond, "variant": variant, "id": row["id"], "demo": int(row["id"].startswith("demo")),
                     "has_pii": row["has_pii"], "residual": int(bool(left)), "residual_types": "|".join(left),
