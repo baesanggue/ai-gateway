@@ -1,0 +1,13 @@
+{
+  "local_model": "gliclass:v4-edge",
+  "cloud_model": "gpt-6-luna",
+  "preset": "shop",
+  "thresholds": {
+    "has_pii": 0.09,
+    "is_confidential": 0.12,
+    "needs_raw_value": 0.02,
+    "is_risky": 0.5,
+    "difficulty_complex": 0.08
+  },
+  "pc": "Windows-11-10.0.26300-SP0, AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD"
+}
