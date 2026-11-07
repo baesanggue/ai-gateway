@@ -121,11 +121,19 @@ class CustomPattern(BaseModel):
         return v
 
 
+class NerConfig(BaseModel):
+    """이름 인식 모델 (#53, D23). 파일이 없거나 고정한 해시와 다르면 게이트웨이를 시작하지 않는다."""
+    model_dir: str = "models/koelectra-ko-pii-ner"
+    # onnx/model_int8.onnx(14.7MB) | onnx/model.onnx(fp32, 56.6MB). 11/07 측정에서 정확도가 같아 가벼운 쪽이 기본
+    onnx_file: str = "onnx/model_int8.onnx"
+
+
 class MaskingConfig(BaseModel):
     user_dictionary_path: str
     # 시연용 가상 사전 (커밋됨, 업종 프리셋이 정한다). 시연할 때 user_dictionary_path로 복사해 쓴다 (D21)
     example_dictionary_path: str = "config/presets/shop.dictionary.example.txt"
     custom_patterns: list[CustomPattern] = []
+    ner: NerConfig = NerConfig()
 
 
 class StorageConfig(BaseModel):
