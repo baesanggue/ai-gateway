@@ -75,6 +75,30 @@ def test_rebuild_relabels_from_items_without_the_generator(tmp_path):
     assert summary["intent_unlabeled_faq_like_service"] == 1
 
 
+def test_make_eval_drops_training_lookalikes_and_retired_categories(tmp_path):
+    """학습 중 평가용 줄 (#22): 학습 데이터와 거의 같은 문장, 지금 범주 표에 없는 범주(짧지만 복잡)는 뺀다."""
+    import csv
+    import json
+    pilot = tmp_path / "pilot"
+    pilot.mkdir()
+    items = [
+        {"category": "faq", "original": "택배 운송장 번호는 어디서 확인하나요", "masked": "", "pii_kinds": "", "drop": ""},
+        {"category": "faq", "original": "대출 상담 가능 시간이 어떻게 돼?", "masked": "", "pii_kinds": "", "drop": ""},
+        {"category": "task_short_complex", "original": "이번 달 실적 달성률 계산해줘", "masked": "", "pii_kinds": "", "drop": ""},
+    ]
+    with open(pilot / "items.csv", "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(items[0]))
+        w.writeheader()
+        w.writerows(items)
+    train = tmp_path / "train"
+    train.mkdir()
+    (train / "train.jsonl").write_text(json.dumps({"state": "대출 상담 가능 시간이 어떻게 돼요?"}, ensure_ascii=False) + "\n",
+                                       encoding="utf-8")
+    gen.make_eval(pilot, train)
+    rows = [json.loads(line) for line in (train / "eval-pilot.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["state"] for r in rows] == ["택배 운송장 번호는 어디서 확인하나요"]
+
+
 def test_name_tokens_mix_dictionary_and_unregistered_shapes():
     """게이트웨이는 사전에 있는 이름을 [고객1], 사전에 없는 이름을 [이름1]로 보낸다 (D23). 학습 데이터에 둘 다 나온다.
     번호는 토큰 종류마다 1부터 센다."""
