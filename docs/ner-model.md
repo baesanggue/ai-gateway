@@ -1,0 +1,53 @@
+# 이름 인식 모델 (#42, #53)
+
+사전에 없는 이름을 찾는 데 쓰는 한국어 개인정보 인식 모델이다. **위치만 찾고**, 바꾸기·복원은 가명화 부품(코드)이 한다 (설계 결정 1번).
+
+## 무엇을 쓰나
+
+| 항목 | 값 |
+|---|---|
+| 모델 | [`atonlee/koelectra-ko-pii-ner`](https://huggingface.co/atonlee/koelectra-ko-pii-ner) |
+| 고정한 커밋 | `1e75c01e707232401883cf364151bbe2e560c708` (2026-08-26) |
+| 바탕 모델 | `monologg/koelectra-small-v3-discriminator`, 1,410만 매개변수, 최대 512토큰 |
+| 라벨 | 29종(BIO). 이름은 `NAME`. 이 프로젝트는 지금 `NAME`만 쓴다 |
+| 가중치 라이선스 | Apache-2.0 |
+| 학습 데이터 | `BCCard` openpii(금융·행정 문장, CC BY 4.0), `townboy/korean-pii-dataset`(CC BY 4.0), 작성자가 쓴 예문 |
+| 실행 | `onnxruntime` 1.31.0 (MIT), `tokenizers` 0.23.3 (Apache-2.0). PyTorch·transformers는 필요 없다 |
+
+- 출처 표시: 위 모델과 두 데이터셋(CC BY 4.0)을 README와 발표 자료에 적는다.
+- 모델 파일은 저장소에 넣지 않는다(`models/`는 .gitignore). 설치 스크립트(M4)가 아래 해시로 확인하며 받는다.
+- 파일이 ONNX·JSON뿐이라 받는 순간 실행되는 코드가 없다. 원격 코드 실행(`trust_remote_code`)도 쓰지 않는다.
+- 확인한 날(11/07) 모델 페이지의 토론 탭에 보안 신고는 없었다. 올린 사람은 개인 1명이다.
+
+## 받은 파일 (`models/koelectra-ko-pii-ner/`)
+
+| 파일 | 크기 | SHA-256 |
+|---|---|---|
+| `onnx/model_int8.onnx` | 14.7MB | `53cd2da73867d0a66ea2bec70b582d164115803788438bd63fd8a9ed365868e7` |
+| `onnx/model.onnx` (fp32) | 56.6MB | `7794bdaa2daaa524d1e7f5e4f80e6b62c6fe3bf36d7a9175f4cd4c011837ddc3` |
+| `config.json` | 3.5KB | `65b1c2e17c4eb6d4f5be29e4374784a03c7b886229af948757e55f3b79444a23` |
+| `tokenizer.json` | 815KB | `9bc85a2412ae3694bffac69cb152a9aafd59fd0357e540a343fa9daa62099c38` |
+| `tokenizer_config.json` | 352B | `9cd988573a9588a6085cd353eeefa09b803dba75b03f58d0c1d302aad3078193` |
+
+ONNX 두 파일의 해시는 Hugging Face 서버가 알려 주는 값(`x-linked-etag`)과 같았다.
+
+```bash
+SHA=1e75c01e707232401883cf364151bbe2e560c708
+curl -L -o models/koelectra-ko-pii-ner/onnx/model_int8.onnx https://huggingface.co/atonlee/koelectra-ko-pii-ner/resolve/$SHA/onnx/model_int8.onnx
+```
+
+## 측정 (11/07, `bench/results/names-2026-11-07/summary.md`)
+
+사전은 시연 사전만 쓴다(사전에 없는 이름이 남는다). 목표는 이름 재현율 ≥ 95%, 잘못 가린 문장 ≤ 5%다.
+
+| 방법 | 테스트셋 재현율 / 잘못 가림 | 파일럿(테스트셋 밖) | 드문 이름 | 지연 |
+|---|---|---|---|---|
+| 판단 모델로 후보 판단 (가장 나은 조합) | 97% / 42% | 96% / 32% | 93% / 85% | 459ms |
+| **이름 인식 모델 int8** | **97% / 2%** | **100% / 1%** | **98% / 0%** | **2ms** |
+| 이름 인식 모델 fp32 | 97% / 2% | 100% / 1% | 98% / 0% | 2ms |
+
+- 판단 모델은 "고객"·"민원인"·"우리"도 이름으로 봤다. 이름 인식 모델은 이런 낱말을 건드리지 않았다.
+- 이름 인식 모델은 기준값 없이 모델이 붙인 라벨을 그대로 쓴다(테스트셋에 맞춘 값이 아니다).
+- 놓친 이름 2개: "정하늘 고객에게"(이름 끝이 일반 낱말 "하늘"과 같다), "온결"(아주 드문 성 + 외자 이름).
+- 잘못 가린 낱말: "금식", "휴진", "내원", "상방/하방", "쇼", "김OO"(이름 자리표시) 등. 한 글자("쇼", "O")는 사전과 같은 "두 글자 이상" 규칙으로 걸러진다.
+- 성씨 목록에 없는 성("묵하진", "섭지우")도 찾았다. 모델은 성씨 목록을 쓰지 않는다.
