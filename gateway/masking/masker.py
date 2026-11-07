@@ -6,6 +6,7 @@
 - restore(text, mapping): LLM 답변의 가명 토큰을 원래 값으로 되돌린다 (조사 교정, 복원 못 한 토큰 수 → restore.py, #45)
 - available: False면 가명화를 할 수 없는 부품이다. 파이프라인은 개인정보가 보이거나 확인할 수 없는 요청을
   밖으로 보내지 않고 막는다 (routing.policy.decide_without_masking)
+- 사전에 없는 이름은 이름 인식 모델이 찾아 [이름1]로 가린다 (#53, D23). 모델은 위치만 찾고 바꾸기는 여기 코드가 한다
 """
 import re
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ from typing import Protocol
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
+from gateway.masking.ner import NerModel
+from gateway.masking.ner import load as load_ner
 from gateway.masking.patterns import PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
 from gateway.masking.restore import Restored
 from gateway.masking.restore import restore as restore_tokens
@@ -26,6 +29,9 @@ class MaskResult:
     counts: dict[str, int] = field(default_factory=dict)   # 개인정보 종류별 개수 (로그용, 값 없음)
     # 가린 뒤에도 남은 개인정보 종류. 정규화로도 못 맞춘 표기(동그라미 숫자 등)다. 있으면 파이프라인이 막는다
     unmasked: list[str] = field(default_factory=list)
+    # 가린 뒤에도 남았을 수 있는 개인정보 종류. 이름 인식 모델이 주소로 본 곳이 가린 뒤에도 그대로 있다
+    # (시·도 없이 쓴 주소 등, 정규식이 못 맞춤). 엄격 수준은 막고, 어느 수준이든 로그에 문장을 남기지 않는다 (D23)
+    suspected: list[str] = field(default_factory=list)
 
     @property
     def has_pii(self) -> bool:
@@ -58,6 +64,9 @@ class UnavailableMasker:
 
 
 LOOSE_TOKEN = re.compile(r"([^\W\d_]+)\s?(\d+)(?!\d)")   # 고객1, 고객 1 (괄호 종류와 관계없이)
+TOKEN_SHAPE = r"\[[^\W\d_]+\d+\]"                          # [고객1]
+NAME_KIND = "이름"        # 사전에 없는 이름의 토큰 종류 [이름1]. 사전에 등록된 이름은 사전의 종류([고객1])를 쓴다
+ADDRESS_KIND = "주소"
 
 
 class RuleMasker:
@@ -71,13 +80,17 @@ class RuleMasker:
     - 이름이 다른 낱말 안에 들어 있어도 가린다(한국어는 조사가 붙어 낱말 경계를 정하기 어렵다). 사전에는 두 글자 이상만
     - 가리기 전에 표기를 맞춘다(patterns.normalize_text: NFC, 전각 → 반각, 대시 → 하이픈). 밖으로 나가는 문장도
       맞춘 표기다. 사전은 영문 대소문자를 구분하지 않는다 ("x-프로젝트"도 가린다)
+    - 이름 인식 모델(#53, D23): 요청 전체를 한 번에 읽혀 사람 이름을 찾고, 사전 다음에 값 단위로 [이름N]으로 가린다.
+      모델은 토큰이 끼기 전의 원문을 본다. 두 글자 이상, 숫자 없는 것만(사전과 같은 규칙). 주소는 가리지 않고
+      가린 뒤에도 남았는지만 본다(suspected). 주소 경계가 모델마다 달라 반쪽만 가리면 나머지가 그대로 나간다
     """
 
     available = True
 
     def __init__(self, entries: list[Entry], dictionary_source: str = "custom",
-                 custom_patterns: list[tuple[str, re.Pattern[str]]] = ()):
+                 custom_patterns: list[tuple[str, re.Pattern[str]]] = (), ner: NerModel | None = None):
         self.dictionary_source = dictionary_source     # "custom"(회사 사전) | "example"(시연용 사전 복사본) → /healthz
+        self.ner = ner                                 # 이름 인식 모델. 게이트웨이는 늘 있다(없으면 시작하지 않음, D23)
         # 회사별 식별번호 (#38, 업종 프리셋): (토큰 종류, 정규식). 기본 정규식보다 먼저 본다 (더 구체적이다)
         self.custom_patterns = list(custom_patterns)
         # 사전 값 전체를 정규식 하나로: 긴 값부터(같은 위치에서 "김민수진"이 "김민수"보다 먼저), 대소문자 무시
@@ -94,7 +107,13 @@ class RuleMasker:
     def from_config(cls, cfg: MaskingConfig) -> "RuleMasker":
         entries, _, is_example = load_dictionary(cfg)    # 사전이 없으면 DictionaryMissing (시작하지 않는다, D21)
         custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]   # 설정에서 이미 검증했다
-        return cls(entries, "example" if is_example else "custom", custom)
+        ner = load_ner(cfg.ner)                          # 모델 파일이 없거나 해시가 다르면 NerModelError (D23)
+        return cls(entries, "example" if is_example else "custom", custom, ner)
+
+    @property
+    def ner_source(self) -> str | None:
+        """/healthz에 보이는 이름 인식 모델 파일."""
+        return self.ner.onnx_file if self.ner is not None else None
 
     def mask(self, messages: list[dict[str, str]]) -> MaskResult:
         # 입력에 이미 있는 토큰 모양의 번호는 쓰지 않는다. 복원은 바꿔 쓴 모양([고객 1], 고객1님)도 되돌리므로 그 모양도 센다
@@ -117,11 +136,24 @@ class RuleMasker:
                 counts[kind] = counts.get(kind, 0) + 1
             return by_value[key]
 
+        texts = [normalize_text(msg["content"]) for msg in messages]
+        names, addresses = self._find(texts)
+        found = re.compile("|".join(map(re.escape, names)), re.IGNORECASE) if names else None
+        # 사전이 만든 토큰([고객1])은 건드리지 않는다. 입력에 원래 있던 토큰 모양 글자 안의 이름은 가린다
+        skip = re.compile(rf"{TOKEN_SHAPE}|{found.pattern}", re.IGNORECASE) if found else None
+
+        def name_token(m: re.Match) -> str:
+            v = m.group()
+            if not v.startswith("["):
+                return token(self.kinds.get(v.casefold(), NAME_KIND), v)
+            return v if v in mapping else found.sub(name_token, v)
+
         out = []
-        for msg in messages:
-            text = normalize_text(msg["content"])
+        for msg, text in zip(messages, texts):
             if self.names is not None:
                 text = self.names.sub(lambda m: token(self._kind(m.group()), m.group()), text)
+            if skip is not None:
+                text = skip.sub(name_token, text)
             for kind, pattern in self.custom_patterns:
                 text = pattern.sub(lambda m, k=kind: token(k, m.group()), text)
             for kind, pattern in PATTERNS:
@@ -135,7 +167,26 @@ class RuleMasker:
             unmasked += [kind for kind, pattern in self.custom_patterns for _ in pattern.finditer(copy)]
             if self.names_compat is not None:
                 unmasked += [self._kind(m.group()) for m in self.names_compat.finditer(copy)]
-        return MaskResult(out, mapping, counts, unmasked)
+        joined = "\n".join(msg["content"] for msg in out)
+        suspected = [ADDRESS_KIND for a in addresses if a in joined]
+        return MaskResult(out, mapping, counts, unmasked, suspected)
+
+    def _find(self, texts: list[str]) -> tuple[list[str], list[str]]:
+        """이름 인식 모델로 (이름들, 주소들). 메시지 전체를 이어 한 번에 읽힌다(파일은 칸이 수천 개다).
+        이어 붙인 줄바꿈을 넘는 조각은 줄마다 나눈다. 긴 값부터 (같은 위치에서 "김민수진"이 "김민수"보다 먼저)."""
+        if self.ner is None:
+            return [], []
+        names, addresses = [], []
+        for span in self.ner.find("\n".join(texts), {"NAME", "ADDRESS"}):
+            for piece in span.text.split("\n"):
+                piece = piece.strip()
+                if len(piece) < 2 or "[" in piece or "]" in piece:
+                    continue
+                if span.label == "ADDRESS":
+                    addresses.append(piece)
+                elif not any(c.isdigit() for c in piece):
+                    names.append(piece)
+        return sorted(dict.fromkeys(names), key=len, reverse=True), list(dict.fromkeys(addresses))
 
     def _kind(self, matched: str) -> str:
         """사전에서 찾은 값의 종류. 정규식의 대소문자 무시와 casefold()는 몇몇 특수 문자에서 규칙이 달라
@@ -148,4 +199,5 @@ class RuleMasker:
     def restore(self, text: str, mapping: dict[str, str]) -> Restored:
         """가명 토큰을 원래 값으로 (#45). 조사를 원래 값의 받침에 맞추고, 바꿔 쓴 토큰([고객 1], 【고객1】)도 되돌린다.
         복원하지 못한 토큰은 사전·정규식 종류의 토큰 모양만 센다."""
-        return restore_tokens(text, mapping, set(self.kinds.values()) | {k for k, _ in PATTERNS})
+        kinds = set(self.kinds.values()) | {k for k, _ in PATTERNS} | ({NAME_KIND} if self.ner is not None else set())
+        return restore_tokens(text, mapping, kinds)

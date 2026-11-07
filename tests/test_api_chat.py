@@ -26,6 +26,7 @@ def test_healthz(client):
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
     assert r.json()["dictionary"] == "example"            # 시연용 사전으로 동작 중임을 알린다 (D21)
+    assert r.json()["ner"] == "fake"                      # 이름 인식 모델 파일 (시험에서는 가짜, conftest)
 
 
 def test_returns_openai_shaped_completion(client):

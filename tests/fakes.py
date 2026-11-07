@@ -12,6 +12,7 @@ import httpx
 
 from gateway.config import load_settings
 from gateway.masking.masker import MaskResult
+from gateway.masking.ner import Span
 from gateway.masking.restore import Restored
 from gateway.masking.patterns import PATTERNS
 
@@ -114,6 +115,24 @@ class FakeUpstream:
                 return httpx.Response(self.chat_status, json={"error": {"message": "upstream", "code": "server_error"}})
             return httpx.Response(200, json=completion(self.reply))
         return httpx.Response(404)
+
+
+class FakeNer:
+    """가짜 이름 인식 모델: 정해 준 낱말을 그 라벨로 찾는다. 받은 글과 호출 횟수를 남긴다.
+    실제 모델 파일은 저장소에 없어서(D23), 모델 없이도 가명화·라우팅 흐름을 시험한다. 실제 모델 시험은 tests/test_ner.py."""
+
+    onnx_file = "fake"
+
+    def __init__(self, names=(), addresses=()):
+        self.found = [("NAME", n) for n in names] + [("ADDRESS", a) for a in addresses]
+        self.texts: list[str] = []
+
+    def find(self, text, labels=None):
+        self.texts.append(text)
+        spans = [Span(label, m.start(), m.end(), m.group(), 0.9)
+                 for label, value in self.found if not labels or label in labels
+                 for m in re.finditer(re.escape(value), text)]
+        return sorted(spans, key=lambda s: s.start)
 
 
 class FakeMasker:
