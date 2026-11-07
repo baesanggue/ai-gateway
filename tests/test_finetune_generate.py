@@ -34,6 +34,47 @@ def test_same_placeholder_gets_same_value_and_token(faker):
     assert f.kinds == ["이름", "전화번호", "이름"]
 
 
+@pytest.mark.parametrize("text, has_intent", [
+    ("적금 가입할 때 필요한 서류 알려줘", False),             # 11/07 표본 #49: 정의상 FAQ(서류)
+    ("신용카드 한도 상향은 어떻게 하는거임", False),          # #37: 신청 방법
+    ("병원 예약할때 준비물 뭐뭐 챙겨가야대요?", False),
+    ("재활운동기구 사용법이 좀 헷갈리는데 설명좀", True),      # 사용법 → 이용 문의 정답 유지
+    ("이 서비스 이용을 위한 연령 제한이 따로 있나요?", True),  # 자격
+])
+def test_faq_like_service_lines_have_no_intent_label(text, has_intent):
+    """이용 문의 범주인데 FAQ 정의에 해당하는 문장은 의도 정답만 비운다. 다른 정답은 그대로."""
+    service = next(c for c in gen.CATEGORIES if c.id == "service")
+    labels = gen.labels_for(service, False, text)
+    assert ("intent" in labels) is has_intent
+    assert labels["is_risky"] is False and labels["difficulty"] == "simple"
+
+
+def test_rebuild_relabels_from_items_without_the_generator(tmp_path):
+    """생성 모델 없이 items.csv로 학습 줄을 다시 만든다. 뺀 문장은 넣지 않고, 개인정보 문장은 가명화본도 만든다."""
+    import csv
+    import json
+    items = [
+        {"category": "service", "original": "적금 가입할 때 필요한 서류 알려줘", "masked": "", "pii_kinds": "", "drop": ""},
+        {"category": "service", "original": "앱 알림 끄는 법 알려줘", "masked": "", "pii_kinds": "", "drop": ""},
+        {"category": "pii_maskable", "original": "양미래 고객에게 문자 써줘", "masked": "[이름1] 고객에게 문자 써줘",
+         "pii_kinds": "이름", "drop": ""},
+        {"category": "faq", "original": "영업시간 알려줘", "masked": "", "pii_kinds": "", "drop": "near_duplicate"},
+    ]
+    with open(tmp_path / "items.csv", "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(items[0]))
+        w.writeheader()
+        w.writerows(items)
+    (tmp_path / "summary.json").write_text("{}", encoding="utf-8")
+    gen.rebuild(tmp_path)
+    rows = [json.loads(line) for line in (tmp_path / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["state"] for r in rows] == ["적금 가입할 때 필요한 서류 알려줘", "앱 알림 끄는 법 알려줘",
+                                          "양미래 고객에게 문자 써줘", "[이름1] 고객에게 문자 써줘"]
+    assert "intent" not in rows[0]["expected"] and rows[1]["expected"]["intent"] == "service"
+    assert rows[2]["expected"]["has_pii"] is True and rows[3]["expected"]["has_pii"] is False
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["intent_unlabeled_faq_like_service"] == 1
+
+
 def test_name_tokens_mix_dictionary_and_unregistered_shapes():
     """게이트웨이는 사전에 있는 이름을 [고객1], 사전에 없는 이름을 [이름1]로 보낸다 (D23). 학습 데이터에 둘 다 나온다.
     번호는 토큰 종류마다 1부터 센다."""

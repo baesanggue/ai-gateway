@@ -13,6 +13,7 @@
 
 실행: uv run python finetune/generate.py --per-category 20 --out-dir finetune/data/pilot-<날짜>
 전제: Ollama가 127.0.0.1:11434에서 돌고 gemma4:12b를 받아 둔 상태
+정답 규칙만 고쳤을 때: uv run python finetune/generate.py --rebuild --out-dir finetune/data/<폴더> (생성 모델을 부르지 않음)
 """
 import argparse
 import csv
@@ -86,7 +87,8 @@ CATEGORIES = [
              "고객·주민이 묻는 짧은 자주 묻는 질문. 운영 시간, 신청·예약 방법, 준비물·서류, 배송·반품·결제 절차처럼 회사가 정해 둔 답이 있는 것.",
              {"is_risky": F, "is_confidential": F, "difficulty": 0, "intent": "faq"}),
     Category("service", CUSTOMER,
-             "상품이나 서비스의 사용법·관리법·추천·자격을 묻는 이용 문의. 몇 문장으로 짧게 답할 수 있는 것.",
+             "상품이나 서비스의 사용법·관리법·추천·자격을 묻는 이용 문의. 몇 문장으로 짧게 답할 수 있는 것. "
+             "운영 시간, 신청·예약 방법, 서류·준비물, 절차를 묻는 질문은 만들지 않는다(자주 묻는 질문은 다른 범주다).",
              {"is_risky": F, "is_confidential": F, "difficulty": 0, "intent": "service"}),
     Category("task_simple", ALL,
              "직원이 AI에게 맡기는 간단한 업무. 짧은 문장 다듬기, 짧은 공지·안내문 작성, 단어 번역, 한두 줄 요약처럼 금방 끝나는 일.",
@@ -262,8 +264,17 @@ def check(template: str, cat: Category) -> str | None:
     return None
 
 
-def labels_for(cat: Category, has_pii: bool) -> dict[str, object]:
+# "이용 문의" 범주인데 FAQ 정의(신청 방법·서류·준비물·시간·절차)에 해당하는 표현을 쓰는 문장은 의도 정답을 비운다.
+# 이용 문의를 만들라고 해도 gemma4가 31%(66/214)를 FAQ 쪽 문장으로 만들었다(11/07 표본 검토 #37·#49).
+# FAQ로 바꾸지 않고 비우는 이유: 단어로 고르면 "금리 낮추려면 어떻게 해야 돼?" 같은 조언 질문도 걸린다. 비우면 틀린 정답이 없다
+FAQ_LIKE = re.compile(r"서류|준비물|신청(?:은|하려면|방법|하는)|발급(?:받|은|하려면)|어떻게 (?:해|하|신청)|방법|절차|몇 시|시간"
+                      r"|언제까지|가능한가요|필요한")
+
+
+def labels_for(cat: Category, has_pii: bool, text: str = "") -> dict[str, object]:
     out = {"has_pii": has_pii, **cat.labels}
+    if cat.id == "service" and FAQ_LIKE.search(text):
+        out.pop("intent")
     if "difficulty" in out:
         out["difficulty"] = DIFFICULTY_LEVELS[out["difficulty"]]
     return out
@@ -282,7 +293,11 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.9)
     ap.add_argument("--seed", type=int, default=1031)
     ap.add_argument("--review", type=int, default=50, help="직접 검토할 무작위 표본 수")
+    ap.add_argument("--rebuild", action="store_true", help="생성하지 않고 out-dir의 items.csv로 학습 줄만 다시 만든다")
     args = ap.parse_args()
+    if args.rebuild:
+        rebuild(args.out_dir)
+        return
 
     rng = random.Random(args.seed)
     faker = Faker(rng)
@@ -329,21 +344,9 @@ def main():
         kept = sum(1 for i in items if i["category"] == cat.id and not i["drop"])
         print(f"{cat.id}: {kept} kept", flush=True)
 
-    # laya 학습 줄: 원문 한 줄 + (개인정보가 있으면) 가명화본 한 줄
-    # 가명화본의 has_pii는 False다. 토큰만 남은 문장에 '남은 개인정보 없음'이라고 답하도록 가르친다
-    # (엄격 수준은 가명화 뒤 남은 개인정보 의심을 차단에 쓴다, docs/routing.md)
-    lines = []
-    for it in (i for i in items if not i["drop"]):
-        cat = next(c for c in CATEGORIES if c.id == it["category"])
-        lines.append({"source": "original", **it, "labels": labels_for(cat, bool(it["pii_kinds"]))})
-        if it["masked"]:
-            lines.append({"source": "masked", **it, "labels": labels_for(cat, False)})
-
+    lines = build_lines(items)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    with open(args.out_dir / "train.jsonl", "w", encoding="utf-8") as f:
-        for ln in lines:
-            state = ln["masked"] if ln["source"] == "masked" else ln["original"]
-            f.write(json.dumps(row(state, ln["labels"]), ensure_ascii=False) + "\n")
+    write_train(args.out_dir, lines)
     with open(args.out_dir / "items.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(items[0]))
         w.writeheader()
@@ -373,10 +376,48 @@ def main():
                "dropped": dict(Counter(i["drop"] for i in items if i["drop"])),
                "lines": len(lines), "masked_lines": sum(ln["source"] == "masked" for ln in lines),
                "kept_by_category": dict(Counter(i["category"] for i in items if not i["drop"])),
-               "label_counts": {q: dict(Counter(_show(ln["labels"][q]) for ln in lines if q in ln["labels"]))
-                                for q in QUESTIONS}}
+               "label_counts": label_counts(lines)}
     (args.out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
+
+
+def build_lines(items: list[dict]) -> list[dict]:
+    """laya 학습 줄: 원문 한 줄 + (개인정보가 있으면) 가명화본 한 줄.
+    가명화본의 has_pii는 False다(토큰만 남은 문장). 게이트웨이는 has_pii를 더 이상 묻지 않지만(D23) 비교의 참고로 남긴다."""
+    lines = []
+    for it in (i for i in items if not i["drop"]):
+        cat = next(c for c in CATEGORIES if c.id == it["category"])
+        lines.append({"source": "original", **it, "labels": labels_for(cat, bool(it["pii_kinds"]), it["original"])})
+        if it["masked"]:
+            lines.append({"source": "masked", **it, "labels": labels_for(cat, False, it["original"])})
+    return lines
+
+
+def write_train(out_dir: Path, lines: list[dict]) -> None:
+    with open(out_dir / "train.jsonl", "w", encoding="utf-8") as f:
+        for ln in lines:
+            state = ln["masked"] if ln["source"] == "masked" else ln["original"]
+            f.write(json.dumps(row(state, ln["labels"]), ensure_ascii=False) + "\n")
+
+
+def label_counts(lines: list[dict]) -> dict:
+    return {q: dict(Counter(_show(ln["labels"][q]) for ln in lines if q in ln["labels"])) for q in QUESTIONS}
+
+
+def rebuild(out_dir: Path) -> None:
+    """이미 만든 문장(items.csv)으로 학습 줄만 다시 만든다. 생성 모델을 부르지 않는다.
+    정답 규칙을 고쳤을 때 쓴다. 검토 표본(review.*)은 검토가 끝난 것이라 그대로 둔다."""
+    with open(out_dir / "items.csv", encoding="utf-8-sig", newline="") as f:
+        items = list(csv.DictReader(f))
+    lines = build_lines(items)
+    write_train(out_dir, lines)
+    summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    summary["label_counts"] = label_counts(lines)
+    summary["intent_unlabeled_faq_like_service"] = sum(
+        1 for ln in lines if ln["category"] == "service" and "intent" not in ln["labels"])
+    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print(json.dumps(summary["label_counts"]["intent"], ensure_ascii=False),
+          "의도 정답을 비운 이용 문의:", summary["intent_unlabeled_faq_like_service"])
 
 
 LABEL_KO = {"has_pii": "개인정보", "is_confidential": "기밀", "needs_raw_value": "원본 필요", "is_risky": "위험",
