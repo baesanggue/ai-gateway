@@ -156,6 +156,26 @@ def test_every_block_reason_has_a_message_in_config(cfg):
     assert set(BLOCK_PRIORITY) <= set(cfg.routing.block_messages)
 
 
+# ── 가린 뒤에도 남았을 수 있는 주소 (이름 인식 모델, D23) ──────
+
+@pytest.mark.parametrize("level, suspected, blocked", [
+    ("strict", ["주소"], True), ("local", ["주소"], True),
+    ("basic", ["주소"], False), ("strict", [], False),
+])
+def test_suspected_address_blocks_only_in_strict_levels(cfg, level, suspected, blocked):
+    from gateway.routing.policy import decide_suspected
+    d = decide_suspected(suspected, level, cfg.routing.block_messages)
+    if blocked:
+        assert (d.route, d.reasons, d.message) == ("block", ["pii_residual"], cfg.routing.block_messages["pii_residual"])
+    else:
+        assert d is None
+
+
+def test_strict_does_not_block_masked_pii_by_default(cfg):
+    """기본 설정은 로컬 판단에 남은 개인정보를 묻지 않는다. 기밀이 아니면 클라우드로 넘어간다 (예전: 95%를 막음, #46)."""
+    assert decide_after_local(judged("local", noul("is_confidential", False)), "strict", cfg.routing.block_messages) is None
+
+
 # ── 가명화가 없을 때 (M1 임시 규칙) ──────────────────────────
 
 @pytest.mark.parametrize("pii_found, local, blocked", [
@@ -164,7 +184,8 @@ def test_every_block_reason_has_a_message_in_config(cfg):
     (False, JudgeResult("local", "test-model", error="ConnectError"), True),                  # 확인 못 함
     (False, judged("local", refused("has_pii"), noul("is_confidential", False)), True),       # 판단 거부
     (False, judged("local", noul("has_pii", False), noul("is_confidential", False)), False),  # 깨끗함
-], ids=["regex", "local-judge", "local-error", "local-refused", "clean"])
+    (False, judged("local", noul("is_confidential", False)), True),                           # 묻지 않음 (D23)
+], ids=["regex", "local-judge", "local-error", "local-refused", "clean", "not-asked"])
 def test_without_masking_blocks_anything_that_may_contain_pii(cfg, pii_found, local, blocked):
     from gateway.routing.policy import decide_without_masking
     d = decide_without_masking(pii_found, local, cfg.routing.block_messages)

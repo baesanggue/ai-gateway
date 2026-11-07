@@ -57,7 +57,8 @@ def test_accepted_false_positive():
 
 
 def test_known_limitation_address_starting_at_district():
-    """시·도 없이 구부터 쓴 주소는 못 잡는다. "요구 사항으로 3개" 같은 평범한 문장과 구분되지 않는다. M2에서 다룬다."""
+    """시·도 없이 구부터 쓴 주소는 정규식으로 못 잡는다. "요구 사항으로 3개" 같은 평범한 문장과 구분되지 않는다.
+    이름 인식 모델이 이런 주소를 찾아, 가린 뒤에도 남았으면 엄격 수준은 막는다 (D23, tests/test_ner.py)."""
     assert find_pii("마포구 가상로 123") == []
 
 

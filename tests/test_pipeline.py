@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from gateway.main import create_app
 from gateway.masking.masker import UnavailableMasker
 from gateway.storage.log import RequestLog
-from tests.fakes import FakeMasker, FakeUpstream, difficulty, noul, predicate, test_settings
+from tests.fakes import FakeMasker, FakeNer, FakeUpstream, difficulty, noul, predicate, test_settings
 
 ORIGINAL ="김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"          # 시연 4번 (가상 값)
 MASKED = "[고객1] 고객([전화번호1])에게 배송 지연 사과 메일 써줘"
@@ -179,6 +179,66 @@ def test_strict_blocks_confidential_before_cloud(tmp_path):
         row = log.get(r.headers["x-gateway-request-id"])
     assert (row["route"], row["reasons"], row["security_level"]) == ("block", ["confidential"], "strict")
     assert up.external_calls == 0
+
+
+# ── 사전에 없는 이름·남은 주소: 이름 인식 모델 (#53, D23) ──────
+# 가명화 부품은 설정으로 만든다(진짜 연결 경로). 모델만 정해 준 낱말을 찾는 가짜로 바꾼다
+
+def with_ner(monkeypatch, names=(), addresses=()):
+    monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer(names, addresses))
+
+
+@pytest.mark.parametrize("level", ["basic", "strict"])
+def test_unregistered_name_is_masked_and_restored_in_every_level(tmp_path, monkeypatch, level):
+    """시연 4번을 사전에 없는 이름으로. 엄격 수준에서도 막지 않고 가려서 보낸다 (예전: 남은 개인정보 판단으로 차단)."""
+    with_ner(monkeypatch, names=["양미래"])
+    up = FakeUpstream(reply="[이름1] 고객님, 배송이 늦어져 죄송합니다.")
+    with gateway(tmp_path, up, level=level) as (client, log):
+        r = ask(client, "양미래 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘")
+        row = log.get(r.headers["x-gateway-request-id"])
+        stored = db_bytes(log)
+    assert r.json()["choices"][0]["message"]["content"] == "양미래 고객님, 배송이 늦어져 죄송합니다."
+    assert row["route"] == "cheap" and row["pii_counts"] == {"이름": 1, "전화번호": 1}
+    assert up.bodies("/v1/decisions")[0]["input"] == "[이름1] 고객([전화번호1])에게 배송 지연 사과 메일 써줘"
+    for value in ("양미래", "010-1234-5678"):                             # httpx는 한글을 UTF-8 그대로 보낸다
+        assert value.encode() not in up.raw_bytes() and value.encode() not in stored
+    (local,) = up.bodies("/v1/systemone")
+    assert list(local["questions"]) == ["is_confidential"]               # 남은 개인정보는 판단 모델에 묻지 않는다
+
+
+def test_strict_blocks_address_the_masking_missed_before_any_call(tmp_path, monkeypatch):
+    """시·도 없이 쓴 주소는 정규식이 못 가린다. 엄격 수준은 판단 엔진도 부르기 전에 막고, 로그에 문장을 남기지 않는다."""
+    with_ner(monkeypatch, addresses=["마포구 가상로 123"])
+    up = FakeUpstream()
+    with gateway(tmp_path, up, level="strict") as (client, log):
+        r = ask(client, "배송지를 마포구 가상로 123으로 바꿔 주세요")
+        row = log.get(r.headers["x-gateway-request-id"])
+        stored = db_bytes(log)
+    assert (row["route"], row["reasons"]) == ("block", ["pii_residual"])
+    assert "시·도부터" in r.json()["choices"][0]["message"]["content"]
+    assert up.requests == [] and row["text_masked"] is None
+    assert "가상로".encode() not in stored
+
+
+def test_basic_sends_suspected_address_but_keeps_it_out_of_the_log(tmp_path, monkeypatch):
+    """기본 수준은 막지 않는다(정규식만으로 가리던 예전과 같다). 다만 로그에는 문장을 남기지 않는다 (설계 결정 2번)."""
+    with_ner(monkeypatch, addresses=["마포구 가상로 123"])
+    up = FakeUpstream()
+    with gateway(tmp_path, up) as (client, log):
+        r = ask(client, "배송지를 마포구 가상로 123으로 바꿔 주세요")
+        row = log.get(r.headers["x-gateway-request-id"])
+        stored = db_bytes(log)
+    assert row["route"] == "cheap" and row["text_masked"] is None
+    assert "가상로".encode() not in stored
+
+
+def test_without_masker_local_judge_is_asked_about_pii_regardless_of_config(tmp_path):
+    """가명화 부품이 없으면(M1) 설정에 has_pii가 없어도 묻는다. 묻지 않으면 이름이 든 요청이 그대로 나간다."""
+    up = FakeUpstream()
+    with gateway(tmp_path, up, masker=UnavailableMasker()) as (client, _):
+        assert ask(client, "보고서 초안 써 줘").status_code == 200
+    (local,) = up.bodies("/v1/systemone")
+    assert list(local["questions"]) == ["is_confidential", "has_pii"]
 
 
 def test_basic_with_masker_continues_when_local_judge_fails(tmp_path):

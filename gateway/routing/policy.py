@@ -2,7 +2,8 @@
 
 경로를 정하는 곳은 요청 처리 순서(D12)에 맞춰 세 군데다.
 1. match_faq: 가명화 뒤, 판단 전. 등록된 FAQ면 템플릿으로 답하고 밖으로 아무것도 보내지 않는다
-2. decide_after_local: 로컬 판단 뒤. 엄격 수준에서 기밀·남은 개인정보 의심이면 클라우드에 보내기 전에 차단
+   (decide_unmasked·decide_suspected: 가린 뒤에도 개인정보가 남았으면 판단 전에 차단. 남은 주소는 엄격 수준만, D23)
+2. decide_after_local: 로컬 판단 뒤. 엄격 수준에서 기밀이면 클라우드에 보내기 전에 차단
 3. decide_after_cloud: 클라우드 판단 뒤. 차단 / 고성능 / 저렴
 
 차단 사유가 여러 개면 모두 reasons에 남기고(로그·화면용), 사용자에게는 가장 앞선 사유의 안내문 하나를 보낸다.
@@ -61,8 +62,10 @@ def match_faq(text: str, faq: FAQConfig) -> Decision | None:
 def decide_after_local(local: JudgeResult, level: SecurityLevel, block_messages: dict[str, str]) -> Decision | None:
     """로컬 판단 뒤 차단할지 정한다. 차단하지 않으면 None (→ 클라우드 판단으로 넘어간다).
 
-    - 기본 수준: 로컬 판단으로 막지 않는다. 남은 개인정보 의심의 처리는 M2 가명화 뒤에 정한다
-    - 엄격 수준: 기밀 → 차단, 남은 개인정보 의심 → 차단. 로컬 판단이 실패하면 확인할 수 없으므로 차단
+    - 기본 수준: 로컬 판단으로 막지 않는다
+    - 엄격 수준: 기밀 → 차단. 로컬 판단이 실패하면 확인할 수 없으므로 차단
+      남은 개인정보는 판단 모델이 아니라 이름 인식 모델로 본다(decide_suspected, D23). 판단 모델은 다 가려진 문장의 95%를
+      "남았다"고 봐서 차단 근거로 못 쓴다(#46). 설정으로 has_pii를 local_questions에 다시 넣으면 그 판단으로도 막는다
     - 완전 로컬 수준: 로컬 LLM 경로는 11/18 이후 선택 기능이라, 그 전까지 엄격 수준처럼 동작한다
     """
     if level == "basic":
@@ -83,14 +86,25 @@ def decide_unmasked(unmasked: list[str], block_messages: dict[str, str]) -> Deci
     return _block(["pii_unmasked"], block_messages) if unmasked else None
 
 
+def decide_suspected(suspected: list[str], level: SecurityLevel, block_messages: dict[str, str]) -> Decision | None:
+    """가린 뒤에도 개인정보가 남았을 수 있으면(이름 인식 모델이 본 주소를 정규식이 못 가림: 시·도 없이 쓴 주소 등)
+    엄격·완전 로컬 수준은 클라우드로 보내기 전에 막는다 (D23). 기본 수준은 막지 않는다(로그에는 문장을 남기지 않는다).
+    11/07 측정에서 가린 뒤 주소가 보인 문장은 세 세트 477문장 중 0개였다(정상 요청을 막지 않는다)."""
+    if level == "basic" or not suspected:
+        return None
+    return _block(["pii_residual"], block_messages)
+
+
 def decide_without_masking(pii_found: bool, local: JudgeResult, block_messages: dict[str, str]) -> Decision | None:
     """가명화 부품이 없을 때(M1) 쓰는 임시 규칙. 보안 수준과 관계없이 적용한다.
 
     가명화 없이 클라우드 판단·LLM으로 보내면 원본이 그대로 나간다(설계 결정 2번 위반). 그래서
-    정규식에 개인정보가 보이거나, 로컬 판단이 "개인정보 있음"이라고 하거나, 로컬 판단으로 확인하지 못하면(실패·거부) 막는다.
+    정규식에 개인정보가 보이거나, 로컬 판단이 "개인정보 있음"이라고 하거나, 로컬 판단으로 확인하지 못하면(실패·거부·묻지 않음) 막는다.
+    파이프라인은 이때 설정과 관계없이 has_pii를 묻는다.
     """
-    unsure = not local.available or _refused(local.judgments.get("has_pii"))
-    if pii_found or _yes(local.judgments.get("has_pii")) or unsure:
+    has_pii = local.judgments.get("has_pii")
+    unsure = not local.available or has_pii is None or _refused(has_pii)
+    if pii_found or _yes(has_pii) or unsure:
         return _block(["masking_unavailable"], block_messages)
     return None
 

@@ -21,7 +21,9 @@ decision:
   base_url: http://127.0.0.1:11435   # Ollaya 기본 주소 (OLLAYA_HOST)
   model: gliclass:v4-edge   # Apache-2.0, ONNX, CPU (실측 메모리 2.2GB, 질문당 0.18초)
   timeout_seconds: 10
-  local_questions: [has_pii, is_confidential]
+  # has_pii(남은 개인정보)는 기본으로 묻지 않는다: 다 가려진 문장의 95%를 "남았다"고 봐서 차단 근거로 못 쓴다(#46).
+  # 사전에 없는 이름은 이름 인식 모델이 가리고, 남은 주소는 그 모델이 본다 (masking.ner, D23)
+  local_questions: [is_confidential]
 
   # 클라우드 (OpenAI Decisions) — 가명화된 문장만 보낸다. 키는 .env의 OPENAI_API_KEY
   cloud:
@@ -43,7 +45,7 @@ decision:
   # 질문별 '예' 기준값: 190행 전체로 정함 (bench/results/compare-190-2026-10-28/summary.md)
   # M0 검증 확정값 (10/28, 190행 라벨 검토 완료). M2 가명화 후·M3 벤치마크에서 다시 확인한다
   thresholds:
-    has_pii: 0.09            # 로컬 noul
+    has_pii: 0.09            # 로컬 noul. 기본 설정에서는 묻지 않는다 (가명화 부품이 없을 때와 측정용, D23)
     is_confidential: 0.10    # 로컬 noul, 엄격 수준에서 차단에 쓰인다. 가명화된 문장 기준 재현율 12/13, 오탐 22/177
                              # (11/07: 0.12에서 낮춤. 0.12면 가명화된 문장에서 11/13으로 D14 경보선 90% 아래, #46)
     needs_raw_value: 0.02    # 클라우드, 가명화된 개인정보가 있을 때만
@@ -65,7 +67,7 @@ routing:
     refused: 요청이 안전한지 확인하지 못해 처리하지 않았습니다. 표현을 바꿔 다시 요청해 주세요.
     off_topic: 업무와 관련 없는 질문에는 답하지 않습니다. 서비스 이용이나 업무에 관한 내용으로 다시 질문해 주세요.
     confidential: 사내 기밀로 보이는 내용이 있어 외부 AI로 보내지 않았습니다(엄격 보안 수준). 기밀 내용을 빼고 다시 요청해 주세요.
-    pii_residual: 가리지 못한 개인정보(이름·주소 등)가 남아 있을 수 있어 외부 AI로 보내지 않았습니다(엄격 보안 수준). 개인정보를 빼고 다시 요청해 주세요.
+    pii_residual: 가리지 못한 개인정보(주소 등)가 남아 있을 수 있어 외부 AI로 보내지 않았습니다(엄격 보안 수준). 주소는 '서울시 ○○구 ○○로 12'처럼 시·도부터 쓰면 가려서 보낼 수 있습니다. 아니면 개인정보를 빼고 다시 요청해 주세요.
     pii_unmasked: 개인정보로 보이는 값을 가리지 못해 외부 AI로 보내지 않았습니다. 번호는 숫자와 하이픈으로, 이름은 일반 글자로 다시 써 주세요.
     masking_unavailable: 가명화 기능이 아직 준비되지 않아, 개인정보가 들어 있거나 확인할 수 없는 요청은 외부 AI로 보내지 않았습니다. 개인정보를 빼고 다시 요청해 주세요.
     local_error: 보안 검사를 마치지 못해 요청을 보내지 않았습니다. 잠시 후 다시 시도해 주세요.
@@ -102,6 +104,11 @@ masking:
   # 위 파일이 없으면 게이트웨이를 시작하지 않는다(D21). 시연이라면 프리셋의 시연용 가상 사전을 위 자리로 복사한다
   # (config/presets/<프리셋>.dictionary.example.txt). 형식: 종류,값 (고객,김민수 → [고객1])
   # 회사별 식별번호 정규식(custom_patterns)과 시연용 사전 위치는 프리셋이 정한다
+  # 이름 인식 모델 (D23): 사전에 없는 이름을 [이름1]로 가리고, 정규식이 못 가린 주소를 찾는다. 이 PC의 CPU에서만 돈다.
+  # 파일이 없거나 고정한 해시와 다르면 게이트웨이를 시작하지 않는다. 받는 방법: docs/ner-model.md
+  ner:
+    model_dir: models/koelectra-ko-pii-ner
+    onnx_file: onnx/model_int8.onnx   # 14.7MB. onnx/model.onnx(fp32, 56.6MB)와 11/07 측정 정확도가 같다
 
 # 요청 로그 (가명화된 텍스트만 저장)
 storage:
