@@ -15,7 +15,7 @@ from typing import Protocol
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
-from gateway.masking.ner import NerModel
+from gateway.masking.ner import NerModel, Span
 from gateway.masking.ner import load as load_ner
 from gateway.masking.patterns import PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
 from gateway.masking.restore import Restored
@@ -64,9 +64,53 @@ class UnavailableMasker:
 
 
 LOOSE_TOKEN = re.compile(r"([^\W\d_]+)\s?(\d+)(?!\d)")   # 고객1, 고객 1 (괄호 종류와 관계없이)
-TOKEN_SHAPE = r"\[[^\W\d_]+\d+\]"                          # [고객1]
+TOKEN_SPLIT = re.compile(r"(\[[^\W\d_]+\d+\])")             # [고객1] 모양으로 나눈다 (괄호로 묶어 토큰도 남긴다)
+NAME_PIECE = re.compile(r"[^\W\d_]+(?: [^\W\d_]+)*")       # 이름 조각에서 글자 덩어리만 ("[양미래]" → 양미래, "Kim Mira")
 NAME_KIND = "이름"        # 사전에 없는 이름의 토큰 종류 [이름1]. 사전에 등록된 이름은 사전의 종류([고객1])를 쓴다
 ADDRESS_KIND = "주소"
+
+
+def _alternation(values: list[str]) -> re.Pattern[str] | None:
+    return re.compile("|".join(map(re.escape, values)), re.IGNORECASE) if values else None
+
+
+def _outside(text: str, mapping: dict[str, str], fn) -> str:
+    """이번 요청에서 만든 토큰([고객1]) 밖에서만 바꾼다. 입력에 원래 있던 토큰 모양 글자([양미래1]) 안은 바꾼다."""
+    parts = TOKEN_SPLIT.split(text)
+    return "".join(p if i % 2 and p in mapping else fn(p) for i, p in enumerate(parts))
+
+
+def _kept_chars(masked: str, mapping: dict[str, str]) -> list[bool]:
+    """가린 문장을 원문 글자 자리로 펼친다: 원문 글자마다 그대로 남았으면 True, 토큰으로 바뀌었으면 False.
+    가린 문장은 원문(정규화한 것)의 몇 군데를 토큰으로 바꾼 것이므로, 토큰을 그 값의 길이만큼 펼치면 원문과 자리가 맞는다."""
+    kept: list[bool] = []
+    for i, part in enumerate(TOKEN_SPLIT.split(masked)):
+        if i % 2 and part in mapping:
+            kept += [False] * len(mapping[part])
+        else:
+            kept += [True] * len(part)
+    return kept
+
+
+def _address_left(texts: list[str], out: list[dict[str, str]], mapping: dict[str, str], addresses: list[Span]) -> bool:
+    """이름 인식 모델이 원문에서 찾은 주소가 가린 뒤에도 남았는가: 주소의 글자·숫자 중 절반 이상이 그대로면 남은 것이다.
+    - 정규식이 못 맞춘 주소("마포구 가상로 123")는 전부 남는다
+    - 일부만 다른 규칙으로 바뀐 주소(사전 값 "가상" → "마포구 [사내1]로 123")도 남은 것으로 본다. 글자가 그대로 있는지만
+      비교하면 이 경우를 놓친다 (11/07 보안 검토)
+    - 정규식이 시·도~번호를 가리고 층·호수만 남은 것("[주소1] 3층")은 남은 것으로 보지 않는다. 그것만으로는 사람을 알 수 없다
+    자리를 맞추지 못하면(대소문자를 무시한 같은 값의 길이가 다를 때) 남은 것으로 본다(막는 쪽)."""
+    kept: list[bool] = []
+    for text, msg in zip(texts, out):
+        k = _kept_chars(msg["content"], mapping)
+        if len(k) != len(text):
+            return True
+        kept += k + [True]                       # 이어 붙인 줄바꿈 자리
+    joined = "\n".join(texts)
+    for s in addresses:
+        chars = [i for i in range(s.start, s.end) if joined[i].isalnum()]
+        if chars and sum(kept[i] for i in chars) * 2 >= len(chars):
+            return True
+    return False
 
 
 class RuleMasker:
@@ -80,9 +124,10 @@ class RuleMasker:
     - 이름이 다른 낱말 안에 들어 있어도 가린다(한국어는 조사가 붙어 낱말 경계를 정하기 어렵다). 사전에는 두 글자 이상만
     - 가리기 전에 표기를 맞춘다(patterns.normalize_text: NFC, 전각 → 반각, 대시 → 하이픈). 밖으로 나가는 문장도
       맞춘 표기다. 사전은 영문 대소문자를 구분하지 않는다 ("x-프로젝트"도 가린다)
-    - 이름 인식 모델(#53, D23): 요청 전체를 한 번에 읽혀 사람 이름을 찾고, 사전 다음에 값 단위로 [이름N]으로 가린다.
-      모델은 토큰이 끼기 전의 원문을 본다. 두 글자 이상, 숫자 없는 것만(사전과 같은 규칙). 주소는 가리지 않고
-      가린 뒤에도 남았는지만 본다(suspected). 주소 경계가 모델마다 달라 반쪽만 가리면 나머지가 그대로 나간다
+    - 이름 인식 모델(#53, D23): 요청 전체를 한 번에 읽혀 사람 이름을 찾고, 값 단위로 [이름N]으로 가린다.
+      모델은 토큰이 끼기 전의 원문을 본다. 글자 덩어리 두 글자 이상만(사전과 같은 규칙). 사전 값을 품은 이름은 사전보다
+      먼저, 나머지는 사전 다음에 가린다(긴 값 먼저와 같은 효과). 이번 요청에서 만든 토큰 안은 어느 단계도 건드리지 않는다
+    - 주소는 가리지 않고 가린 뒤에도 남았는지만 본다(suspected). 주소 경계가 모델마다 달라 반쪽만 가리면 나머지가 그대로 나간다
     """
 
     available = True
@@ -138,22 +183,27 @@ class RuleMasker:
 
         texts = [normalize_text(msg["content"]) for msg in messages]
         names, addresses = self._find(texts)
-        found = re.compile("|".join(map(re.escape, names)), re.IGNORECASE) if names else None
-        # 사전이 만든 토큰([고객1])은 건드리지 않는다. 입력에 원래 있던 토큰 모양 글자 안의 이름은 가린다
-        skip = re.compile(rf"{TOKEN_SHAPE}|{found.pattern}", re.IGNORECASE) if found else None
+        # 사전 값을 품은 이름("남궁민수" ⊃ 사전 "민수")은 사전보다 먼저 가린다. 사전이 먼저면 "남궁[고객1]"로 성이 남는다
+        first = [n for n in names if self.names is not None and self.names.search(n)]
+        first_re = _alternation(first)
+        rest_re = _alternation([n for n in names if n not in first])
 
         def name_token(m: re.Match) -> str:
             v = m.group()
-            if not v.startswith("["):
-                return token(self.kinds.get(v.casefold(), NAME_KIND), v)
-            return v if v in mapping else found.sub(name_token, v)
+            in_dictionary = self.names is not None and self.names.fullmatch(v)
+            return token(self._kind(v) if in_dictionary else NAME_KIND, v)
+
+        def dict_token(m: re.Match) -> str:
+            return token(self._kind(m.group()), m.group())
 
         out = []
         for msg, text in zip(messages, texts):
+            if first_re is not None:
+                text = _outside(text, mapping, lambda t: first_re.sub(name_token, t))
             if self.names is not None:
-                text = self.names.sub(lambda m: token(self._kind(m.group()), m.group()), text)
-            if skip is not None:
-                text = skip.sub(name_token, text)
+                text = _outside(text, mapping, lambda t: self.names.sub(dict_token, t))
+            if rest_re is not None:
+                text = _outside(text, mapping, lambda t: rest_re.sub(name_token, t))
             for kind, pattern in self.custom_patterns:
                 text = pattern.sub(lambda m, k=kind: token(k, m.group()), text)
             for kind, pattern in PATTERNS:
@@ -167,26 +217,29 @@ class RuleMasker:
             unmasked += [kind for kind, pattern in self.custom_patterns for _ in pattern.finditer(copy)]
             if self.names_compat is not None:
                 unmasked += [self._kind(m.group()) for m in self.names_compat.finditer(copy)]
-        joined = "\n".join(msg["content"] for msg in out)
-        suspected = [ADDRESS_KIND for a in addresses if a in joined]
+        suspected = [ADDRESS_KIND] if addresses and _address_left(texts, out, mapping, addresses) else []
         return MaskResult(out, mapping, counts, unmasked, suspected)
 
-    def _find(self, texts: list[str]) -> tuple[list[str], list[str]]:
-        """이름 인식 모델로 (이름들, 주소들). 메시지 전체를 이어 한 번에 읽힌다(파일은 칸이 수천 개다).
-        이어 붙인 줄바꿈을 넘는 조각은 줄마다 나눈다. 긴 값부터 (같은 위치에서 "김민수진"이 "김민수"보다 먼저)."""
+    def _find(self, texts: list[str]) -> tuple[list[str], list[Span]]:
+        """이름 인식 모델로 (이름들, 주소 조각들). 메시지 전체를 이어 한 번에 읽힌다(파일은 칸이 수천 개다).
+        - 바로 붙은 이름 조각은 합친다(모델이 "양|미래"로 두 번 시작해도 성까지 가린다)
+        - 이름 조각에서 글자 덩어리만 쓴다: 괄호·숫자·문장부호를 떼고("[양미래]" → 양미래), 두 글자 이상만.
+          한 글자는 가리지 않는다(사전과 같은 규칙). 한 음절로는 사람을 알 수 없고, 값 단위로 가리면 그 글자가 어디서나 사라진다
+        - 주소는 위치째로 둔다(괄호가 있어도). 가린 뒤 남았는지 볼 때만 쓴다 (_address_left)
+        긴 이름부터 (같은 위치에서 "김민수진"이 "김민수"보다 먼저)."""
         if self.ner is None:
             return [], []
-        names, addresses = [], []
-        for span in self.ner.find("\n".join(texts), {"NAME", "ADDRESS"}):
-            for piece in span.text.split("\n"):
-                piece = piece.strip()
-                if len(piece) < 2 or "[" in piece or "]" in piece:
-                    continue
-                if span.label == "ADDRESS":
-                    addresses.append(piece)
-                elif not any(c.isdigit() for c in piece):
-                    names.append(piece)
-        return sorted(dict.fromkeys(names), key=len, reverse=True), list(dict.fromkeys(addresses))
+        joined = "\n".join(texts)
+        spans: list[Span] = []
+        for s in self.ner.find(joined, {"NAME", "ADDRESS"}):
+            if spans and s.label == "NAME" == spans[-1].label and spans[-1].end == s.start:
+                p = spans[-1]
+                spans[-1] = Span("NAME", p.start, s.end, joined[p.start:s.end], p.score)
+            else:
+                spans.append(s)
+        names = [p for s in spans if s.label == "NAME" for p in NAME_PIECE.findall(s.text) if len(p) >= 2]
+        addresses = [s for s in spans if s.label == "ADDRESS" and sum(c.isalnum() for c in s.text) >= 2]
+        return sorted(dict.fromkeys(names), key=len, reverse=True), addresses
 
     def _kind(self, matched: str) -> str:
         """사전에서 찾은 값의 종류. 정규식의 대소문자 무시와 casefold()는 몇몇 특수 문자에서 규칙이 달라

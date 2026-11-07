@@ -244,6 +244,50 @@ def test_address_the_regex_missed_is_reported_as_suspected():
     assert caught.suspected == [] and caught.counts == {"주소": 1}
 
 
+def test_name_with_brackets_or_digits_attached_is_still_masked():
+    """모델이 괄호·숫자까지 붙여 찾아도 조각을 버리지 않고 글자 덩어리를 가린다 (11/07 보안 검토)."""
+    _, _, r = ner_mask("[양미래]님과 남궁민1 확인", names=["[양미래]", "남궁민1"])
+    out = r.messages[0]["content"]
+    assert "양미래" not in out and "남궁민" not in out and r.counts == {"이름": 2}
+
+
+def test_adjacent_name_pieces_are_joined_so_the_surname_is_masked_too():
+    """모델이 "양|미래"처럼 두 번 시작해도 한 이름으로 가린다. 따로 보면 한 글자 "양"이 남는다."""
+    _, _, r = ner_mask("양미래 고객에게", names=["양", "미래"])
+    assert r.messages[0]["content"] == "[이름1] 고객에게" and r.mapping == {"[이름1]": "양미래"}
+
+
+def test_name_containing_a_dictionary_value_is_masked_whole():
+    """사전 "민수"가 먼저 가리면 "남궁[고객1]"로 성이 남는다. 사전 값을 품은 이름은 사전보다 먼저 가린다 (11/07 보안 검토)."""
+    masker = RuleMasker([Entry("고객", "민수")], ner=FakeNer(names=["남궁민수"]))
+    r = masker.mask([{"role": "user", "content": "남궁민수 고객과 민수 고객"}])
+    assert r.messages[0]["content"] == "[이름1] 고객과 [고객1] 고객"
+
+
+def test_address_partly_changed_by_masking_is_still_suspected():
+    """사전 값("가상")이 주소 안에 있으면 주소 글자가 그대로 남지 않는다. 글자마다 토큰으로 바뀌었는지 맞춰 보면
+    주소 글자 9개 중 7개가 남았다 → 남은 주소 (11/07 보안 검토). 모델은 한 번만 읽는다."""
+    ner = FakeNer(addresses=["마포구 가상로 123"])
+    r = RuleMasker([Entry("사내", "가상")], ner=ner).mask([{"role": "user", "content": "마포구 가상로 123으로 보내 줘"}])
+    assert r.messages[0]["content"] == "마포구 [사내1]로 123으로 보내 줘" and r.suspected == ["주소"]
+    assert len(ner.texts) == 1
+
+
+def test_floor_left_after_regex_masked_the_address_is_not_suspected():
+    """정규식이 시·도~번호를 가리고 층만 남으면(주소 글자 15개 중 2개) 남은 주소로 보지 않는다. 엄격 수준이 정상 요청을 막지 않게."""
+    ner = FakeNer(addresses=["성남시 분당구 가상로 45 3층"])
+    r = RuleMasker([], ner=ner).mask([{"role": "user", "content": "성남시 분당구 가상로 45 3층으로 방문해 주세요"}])
+    assert r.messages[0]["content"] == "[주소1] 3층으로 방문해 주세요" and r.suspected == []
+
+
+def test_address_in_a_later_message_is_located_across_messages():
+    """주소 위치는 메시지를 이어 붙인 글 기준이다. 앞 메시지에 토큰이 있어도 뒤 메시지의 주소 자리를 맞게 찾는다."""
+    ner = FakeNer(names=["양미래"], addresses=["마포구 가상로 123"])
+    r = RuleMasker(ENTRIES, ner=ner).mask([{"role": "user", "content": "김민수·양미래 고객 010-1234-5678"},
+                                          {"role": "user", "content": "배송지는 마포구 가상로 123"}])
+    assert r.suspected == ["주소"]
+
+
 def test_without_model_masker_behaves_as_before():
     r = RuleMasker(ENTRIES).mask([{"role": "user", "content": "양미래 고객에게"}])
     assert r.messages[0]["content"] == "양미래 고객에게" and r.suspected == []
