@@ -52,3 +52,10 @@ finetune\.venv\Scripts\laya-serve.exe
 
 - CPU에서 질문 3개(choice·noul·score) 요청 1건: 약 0.18~0.21초 (모델은 시작할 때 미리 적재)
 - 기본(파인튜닝 전) 체크포인트라 판단 결과 자체는 #5와 같이 약하다. 이번 확인의 목적은 서빙 경로다.
+
+## 파인튜닝한 체크포인트 서빙 (11/07, #22)
+
+- 학습 결과 폴더(`finetune/models/laya-ko-2026-11-07`)를 `LAYA_EXTRA_MODELS`에 그대로 등록하면 된다. 비교용으로 파인튜닝 전 모델과 함께 올렸다:
+  `LAYA_EXTRA_MODELS='{"laya-ko": ".../laya-ko-2026-11-07", "laya-base": ".../laya-multilingual"}'`, `LAYA_MODELS='laya-ko,laya-base'`
+- 결과 폴더 구성: `model.safetensors`(644MB), `encoder/`, `tokenizer/`, `rl_agent_config.json`, `questions.json`, `train_report.json`, `checkpoint_latest/`(학습 중간 저장, 서빙에는 필요 없음)
+- CPU에서 질문 5~6개 요청 1건: 평균 0.5초, p95 0.64초 (테스트셋 190행)

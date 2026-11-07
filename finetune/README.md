@@ -7,7 +7,7 @@
 |---|---|---|
 | ① laya-serve로 로컬 가중치 서빙 확인 | #20 | 통과 (10/29) → `docs/laya-serve-notes.md` |
 | ② 한국어 학습 데이터 생성 | #21 | **완료 (11/07)**: 2,531문장(학습 줄 2,977개), 표본 50줄 오류 4%로 통과 (`finetune/data/train-2026-11-07/review-result.md`). 시범 246문장(10/31)은 학습 중 평가용 |
-| ③ 학습과 현재 구성과의 비교 | #22 | 대기 |
+| ③ 학습과 현재 구성과의 비교 | #22 | **완료 (11/07)**: 12.9분 학습(RTX 4080 SUPER). 판단 5개 중 3개 목표 통과, 기밀·위험 미달 → 하이브리드 유지 (D15, `bench/results/finetune-2026-11-07/summary.md`) |
 
 ## 폴더
 
@@ -15,6 +15,7 @@
 |---|---|---|
 | `finetune/.venv/` | PyTorch·laya 전용 가상환경 (게이트웨이 의존성과 분리) | 제외 (`.venv/`) |
 | `finetune/models/` | 내려받은 체크포인트, 학습 결과물 | 제외 (`models/`) |
+| `finetune/train.py` | GPU 학습 스크립트 (`laya.train.finetune`). `finetune/.venv`로 실행. 기록은 `bench/results/finetune-*/train.json` | 포함 |
 | `finetune/generate.py` | 학습 데이터 생성기 (gemma4:12b + 코드로 채운 가상 값). 게이트웨이 환경으로 실행: `uv run python finetune/generate.py --out-dir …` | 포함 |
 | `finetune/data/` | 생성한 학습 데이터(`train.jsonl`, laya `{state, questions, expected}` 형식)와 표본 검토 결과. 가상 값만 들어 있다 | 포함 |
 
