@@ -149,6 +149,8 @@
 ```bash
 uv sync                                                      # 의존성 설치
 copy .env.example .env                                       # 키 입력 (커밋 금지)
+# 이름 인식 모델(14.7MB)을 models/koelectra-ko-pii-ner/에 받는다. 명령은 docs/ner-model.md
+# 없거나 해시가 다르면 게이트웨이가 시작하지 않는다 (D23)
 uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000 # 게이트웨이 실행
 uv run pytest                                                # 테스트
 ```
@@ -179,7 +181,7 @@ res = client.chat.completions.create(model="gpt-6-luna", messages=[{"role": "use
 | `gateway/main.py` | FastAPI 앱 생성 (`create_app`), 오류를 OpenAI 형식으로 바꿔 반환, `GET /healthz` |
 | `gateway/config.py` | `config.yaml`(일반 설정)과 `.env`(API 키) 로더. 키는 SecretStr로 감싸 출력되지 않음 |
 | `gateway/api/` | OpenAI 호환 엔드포인트 (`/v1/chat/completions`)와 요청·응답 스키마 |
-| `gateway/masking/` | 정규식·사용자 사전 기반 민감정보 감지, 가명화, 복원 |
+| `gateway/masking/` | 정규식·사용자 사전·이름 인식 모델 기반 민감정보 감지, 가명화, 복원 |
 | `gateway/decision/` | 판단 엔진(`/v1/systemone` 형식) 클라이언트, 판단 질문 정의 |
 | `gateway/routing/` | 보안 수준·판단 결과·신뢰도로 처리 경로 결정 |
 | `gateway/llm/` | 저렴한 모델·고성능 모델 API 클라이언트 |
@@ -191,6 +193,12 @@ res = client.chat.completions.create(model="gpt-6-luna", messages=[{"role": "use
 | `scripts/` | 설치 스크립트 |
 | `tests/` | pytest |
 | `docs/` | 설계 결정, AI 활용 기록, 발표 자료, 구조도·화면 목업 |
+
+## 사용한 모델·데이터 출처
+
+- 이름 인식 모델: [`atonlee/koelectra-ko-pii-ner`](https://huggingface.co/atonlee/koelectra-ko-pii-ner) (가중치 Apache-2.0), 바탕 모델 [`monologg/koelectra-small-v3-discriminator`](https://huggingface.co/monologg/koelectra-small-v3-discriminator)
+  - 학습 데이터: `BCCard` openpii, `townboy/korean-pii-dataset` (둘 다 CC BY 4.0)
+  - 자세한 내용과 파일 해시: [docs/ner-model.md](docs/ner-model.md)
 
 ## 문서
 

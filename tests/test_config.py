@@ -14,7 +14,8 @@ def test_repo_config_loads(tmp_path):
     c = s.config
     assert c.security_level in ("basic", "strict", "local")
     assert c.decision.model == "gliclass:v4-edge"
-    assert set(c.decision.local_questions) == {"has_pii", "is_confidential"}
+    assert c.decision.local_questions == ["is_confidential"]     # 남은 개인정보는 이름 인식 모델이 본다 (D23)
+    assert (c.masking.ner.model_dir, c.masking.ner.onnx_file) == ("models/koelectra-ko-pii-ner", "onnx/model_int8.onnx")
     assert c.decision.cloud.model == "gpt-6-luna"
     assert {"has_pii", "is_confidential", "needs_raw_value", "is_risky", "difficulty_complex"} <= set(c.decision.thresholds)
     # .env가 없으면 키는 None

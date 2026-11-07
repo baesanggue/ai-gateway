@@ -14,8 +14,9 @@
 ## 흐름 (D12)
 
 ```
-judge_local(원문)                      → 로컬 엔진: has_pii, is_confidential
-   (가명화, 엄격 수준 차단 확인 — #10·M2)
+judge_local(가명화문)                  → 로컬 엔진: is_confidential (엄격 수준 차단 확인)
+   has_pii는 기본으로 묻지 않는다. 남은 개인정보는 이름 인식 모델이 본다 (D23).
+   가명화 부품이 없을 때(M1 임시 규칙)만 파이프라인이 has_pii를 더해 묻는다
 judge_cloud(가명화문, has_masked_pii)  → 클라우드 엔진: needs_raw_value*, is_risky, difficulty, intent
                                          * 가명화된 개인정보가 있을 때만 묻는다
 ```

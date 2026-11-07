@@ -17,7 +17,7 @@ from gateway.files.scan import scan, summary
 from gateway.main import create_app
 from gateway.masking.masker import RuleMasker
 from gateway.storage.log import RequestLog
-from tests.fakes import FakeUpstream, test_settings
+from tests.fakes import FakeNer, FakeUpstream, test_settings
 
 RAW = ("김민수", "010-1234-5678", "jiwoo.han@example.com", "M12345678", "010-2222-3333")
 
@@ -106,6 +106,24 @@ def test_pdf_text_layer(masker):
 def test_cp949_csv(masker):
     r = scan("명단.csv", "이름,전화\n김민수,010-1234-5678\n".encode("cp949"), masker)
     assert r.counts == {"고객": 1, "전화번호": 1} and r.findings[0].where == "2번째 줄"
+
+
+def test_unregistered_names_in_file_are_masked_with_one_model_call(tmp_path, monkeypatch):
+    """사전에 없는 이름도 채팅과 같이 [이름1]로 (D23). 파일 전체를 한 번에 읽힌다(칸마다 부르면 수천 번)."""
+    ner = FakeNer(names=["양미래"])
+    monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: ner)
+    masker = RuleMasker.from_config(test_settings(tmp_path).config.masking)
+    r = scan("명단.csv", "이름,전화\n양미래,010-1234-5678\n양미래,010-2222-3333\n".encode("utf-8"), masker)
+    assert r.counts == {"이름": 1, "전화번호": 2} and len(ner.texts) == 1
+    assert r.findings[0].where == "2번째 줄" and "[이름1]" in r.masked_text and "양미래" not in r.masked_text
+
+
+def test_suspected_address_is_reported_without_its_value(tmp_path, monkeypatch):
+    monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer(addresses=["마포구 가상로 123"]))
+    masker = RuleMasker.from_config(test_settings(tmp_path).config.masking)
+    r = scan("메모.txt", "배송지: 마포구 가상로 123".encode("utf-8"), masker)
+    assert r.has_pii and r.suspected == ["주소"] and r.counts == {}
+    assert "남아 있을 수 있습니다" in summary(r) and "가상로" not in summary(r)
 
 
 def test_report_never_contains_raw_values(masker):

@@ -76,9 +76,12 @@ def make_service(tmp_path, fake, key=TEST_KEY):
 
 def test_local_sends_original_text_to_systemone_and_applies_thresholds(tmp_path):
     fake = FakeEngines()
-    r = make_service(tmp_path, fake).judge_local(ORIGINAL)
+    service = make_service(tmp_path, fake)
+    service.judge_local(ORIGINAL)                          # 설정대로: 기밀만 (남은 개인정보는 이름 인식 모델, D23)
+    r = service.judge_local(ORIGINAL, ["has_pii", "is_confidential"])   # 가명화 부품이 없을 때(M1)는 has_pii도 묻는다
 
-    (req,) = fake.requests
+    first, req = fake.requests
+    assert list(json.loads(first.content)["questions"]) == ["is_confidential"]
     body = json.loads(req.content)
     assert (req.url.host, req.url.port, req.url.path) == ("127.0.0.1", 11435, "/v1/systemone")
     assert body["state"] == ORIGINAL and body["model"] == "gliclass:v4-edge"

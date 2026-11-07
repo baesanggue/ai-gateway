@@ -3,7 +3,8 @@
 순서는 D12를 따른다. 단계별 규칙은 각 모듈에 있고, 이 파일은 순서와 기록만 맡는다.
 - 가명화 부품(Masker)은 바꿔 끼울 수 있다. 기본은 규칙 가명화 RuleMasker(사용자 사전 + 정규식, #44).
   가명화를 할 수 없는 부품(UnavailableMasker)이면 개인정보가 보이거나 확인할 수 없는 요청을 막는다(masking_unavailable)
-- FAQ와 클라우드 판단은 마지막 사용자 메시지로 한다. 로컬 판단(남은 개인정보·기밀)은 밖으로 나갈 메시지 전체로 한다.
+- 사전에 없는 이름은 가명화 부품 안의 이름 인식 모델이 가린다(D23). 그 모델이 본 주소가 가린 뒤에도 남았으면 엄격 수준은 막는다
+- FAQ와 클라우드 판단은 마지막 사용자 메시지로 한다. 로컬 판단(기밀)은 밖으로 나갈 메시지 전체로 한다.
   LLM에는 대화 전체가 가므로 그 전부를 봐야 한다
 - 모든 경로가 요청 로그를 남긴다. 로그 저장이 실패해도 응답은 돌려준다. 로그에는 가명화된 문장만 들어간다 (#11)
 """
@@ -21,7 +22,7 @@ from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
 from gateway.masking.masker import Masker, RuleMasker, UnavailableMasker
 from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
-                                    decide_unmasked, decide_without_masking, match_faq)
+                                    decide_suspected, decide_unmasked, decide_without_masking, match_faq)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
@@ -80,15 +81,22 @@ class Gateway:
         cfg = self.settings.config
         msgs = cfg.routing.block_messages
         masked = self.masker.mask(messages)
-        trace = _Trace(_last_user(masked.messages), masked.counts, withhold=bool(masked.unmasked))
+        # 가리지 못한 개인정보가 남았거나 남았을 수 있으면(주소) 로그에 문장을 남기지 않는다
+        trace = _Trace(_last_user(masked.messages), masked.counts, withhold=bool(masked.unmasked or masked.suspected))
 
         # ① FAQ: 판단 전 코드 확인. 맞으면 아무것도 밖으로 보내지 않는다
         decision = match_faq(trace.request, cfg.faq)
         # 가린 뒤에도 형식 있는 개인정보가 남았으면(정규화로도 못 맞춘 표기) 아무 판단 전에 막는다
         decision = decision or decide_unmasked(masked.unmasked, msgs)
-        # ② 로컬 판단: 원본을 봐야 하는 판단 (남은 개인정보·기밀). 차단이면 클라우드로 보내지 않는다
+        # 이름 인식 모델이 본 주소가 가린 뒤에도 남았으면 엄격 수준은 막는다 (D23)
+        decision = decision or decide_suspected(masked.suspected, cfg.security_level, msgs)
+        # ② 로컬 판단: 원본을 봐야 하는 판단 (기밀). 차단이면 클라우드로 보내지 않는다
         if decision is None:
-            local = self.decision.judge_local("\n".join(m["content"] for m in masked.messages if m["content"]))
+            questions = cfg.decision.local_questions
+            if not self.masker.available and "has_pii" not in questions:
+                questions = [*questions, "has_pii"]      # 가명화 부품이 없으면(M1) 개인정보가 있는지 물어 막는다
+            local = self.decision.judge_local("\n".join(m["content"] for m in masked.messages if m["content"]),
+                                              questions)
             trace.judges.append(local)
             if not self.masker.available:
                 decision = decide_without_masking(masked.has_pii, local, msgs)

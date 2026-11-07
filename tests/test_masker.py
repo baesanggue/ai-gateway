@@ -6,7 +6,8 @@ import pytest
 from gateway.config import MaskingConfig
 from gateway.masking.dictionary import DictionaryMissing, Entry, load, parse
 from gateway.masking.masker import RuleMasker
-from tests.fakes import DEMO_DICTIONARY
+from gateway.masking.ner import NerModelError
+from tests.fakes import DEMO_DICTIONARY, FakeNer
 
 ENTRIES = [Entry("고객", "김민수"), Entry("고객", "김민수진"), Entry("직원", "최유진"), Entry("사내", "X-프로젝트")]
 
@@ -184,3 +185,120 @@ def test_default_ignorables_and_other_digits_do_not_bypass(text, expected):
 def test_dictionary_values_in_compat_only_forms_are_reported():
     """수학 글꼴 영문처럼 NFKC로만 풀리는 사전 값은 가리지 못한다. 마지막 검사가 사전 값도 찾아 unmasked로 알린다."""
     assert mask("\U0001d417-프로젝트 일정 공유해 줘").unmasked == ["사내"]
+
+
+# ── 사전에 없는 이름: 이름 인식 모델 (#53, D23) ───────────────
+
+def ner_mask(*contents, names=(), addresses=()):
+    ner = FakeNer(names, addresses)
+    masker = RuleMasker(ENTRIES, ner=ner)
+    return masker, ner, masker.mask([{"role": "user", "content": c} for c in contents])
+
+
+def test_unregistered_name_is_masked_as_name_token_and_restored():
+    masker, _, r = ner_mask("양미래 고객(010-1234-5678)에게 사과 메일 써줘", names=["양미래"])
+    assert r.messages[0]["content"] == "[이름1] 고객([전화번호1])에게 사과 메일 써줘"
+    assert r.counts == {"이름": 1, "전화번호": 1} and r.suspected == []
+    restored = masker.restore("[이름1]님께 사과드립니다. [이름2]는 없는 토큰입니다.", r.mapping)
+    assert restored.text == "양미래님께 사과드립니다. [이름2]는 없는 토큰입니다." and restored.unrestored == 1
+
+
+def test_model_reads_all_messages_once_before_any_token():
+    """요청 하나에 한 번만 부른다(파일은 칸이 수천 개). 토큰이 끼기 전의 원문을 본다. 같은 이름은 메시지가 달라도 같은 토큰."""
+    _, ner, r = ner_mask("김민수 고객과 양미래 고객", "양미래 고객에게 다시 연락", names=["양미래"])
+    assert ner.texts == ["김민수 고객과 양미래 고객\n양미래 고객에게 다시 연락"]
+    assert [m["content"] for m in r.messages] == ["[고객1] 고객과 [이름1] 고객", "[이름1] 고객에게 다시 연락"]
+
+
+def test_dictionary_kind_wins_and_its_tokens_are_not_touched():
+    """사전에 있는 이름은 사전 종류([고객1])로. 모델이 "고객"을 이름으로 잘못 봐도 사전이 만든 토큰 [고객1]은 깨지지 않는다."""
+    _, _, r = ner_mask("김민수 고객께 고객 안내문 보내줘", names=["김민수", "고객"])
+    assert r.messages[0]["content"] == "[고객1] [이름1]께 [이름1] 안내문 보내줘"
+    assert r.mapping == {"[고객1]": "김민수", "[이름1]": "고객"}
+
+
+def test_name_inside_user_written_brackets_is_still_masked():
+    """입력에 원래 있던 [ ] 안의 이름은 가린다. 건너뛰는 것은 이번 요청에서 만든 토큰뿐이다."""
+    _, _, r = ner_mask("[양미래1] 표기 그대로 써 줘", names=["양미래"])
+    assert "양미래" not in r.messages[0]["content"]
+
+
+@pytest.mark.parametrize("found", ["쇼", "O", "3번", "김2"], ids=["one-char", "one-latin", "digits", "name-digit"])
+def test_one_char_or_digit_names_are_not_masked(found):
+    """사전과 같은 규칙: 두 글자 이상. 숫자가 든 것은 이름으로 쓰지 않는다 (번호는 정규식 몫)."""
+    _, _, r = ner_mask(f"{found} 확인해 줘", names=[found])
+    assert r.messages[0]["content"] == f"{found} 확인해 줘" and r.counts == {}
+
+
+def test_longer_name_first_and_latin_case_ignored():
+    _, _, r = ner_mask("남궁민수, 남궁민 그리고 Kim Mira, kim mira", names=["남궁민", "남궁민수", "Kim Mira"])
+    assert r.messages[0]["content"] == "[이름1], [이름2] 그리고 [이름3], [이름3]"
+    assert r.mapping["[이름1]"] == "남궁민수"
+
+
+def test_address_the_regex_missed_is_reported_as_suspected():
+    """주소는 가리지 않고 가린 뒤에도 남았는지만 본다. 정규식이 가린 주소는 남지 않는다."""
+    _, _, missed = ner_mask("배송지를 마포구 가상로 123으로 바꿔 주세요", addresses=["마포구 가상로 123"])
+    assert missed.suspected == ["주소"] and missed.counts == {}
+    _, _, caught = ner_mask("배송지를 서울시 마포구 가상로 123으로 바꿔 주세요", addresses=["서울시 마포구 가상로 123"])
+    assert caught.suspected == [] and caught.counts == {"주소": 1}
+
+
+def test_name_with_brackets_or_digits_attached_is_still_masked():
+    """모델이 괄호·숫자까지 붙여 찾아도 조각을 버리지 않고 글자 덩어리를 가린다 (11/07 보안 검토)."""
+    _, _, r = ner_mask("[양미래]님과 남궁민1 확인", names=["[양미래]", "남궁민1"])
+    out = r.messages[0]["content"]
+    assert "양미래" not in out and "남궁민" not in out and r.counts == {"이름": 2}
+
+
+def test_adjacent_name_pieces_are_joined_so_the_surname_is_masked_too():
+    """모델이 "양|미래"처럼 두 번 시작해도 한 이름으로 가린다. 따로 보면 한 글자 "양"이 남는다."""
+    _, _, r = ner_mask("양미래 고객에게", names=["양", "미래"])
+    assert r.messages[0]["content"] == "[이름1] 고객에게" and r.mapping == {"[이름1]": "양미래"}
+
+
+def test_name_containing_a_dictionary_value_is_masked_whole():
+    """사전 "민수"가 먼저 가리면 "남궁[고객1]"로 성이 남는다. 사전 값을 품은 이름은 사전보다 먼저 가린다 (11/07 보안 검토)."""
+    masker = RuleMasker([Entry("고객", "민수")], ner=FakeNer(names=["남궁민수"]))
+    r = masker.mask([{"role": "user", "content": "남궁민수 고객과 민수 고객"}])
+    assert r.messages[0]["content"] == "[이름1] 고객과 [고객1] 고객"
+
+
+def test_address_partly_changed_by_masking_is_still_suspected():
+    """사전 값("가상")이 주소 안에 있으면 주소 글자가 그대로 남지 않는다. 글자마다 토큰으로 바뀌었는지 맞춰 보면
+    주소 글자 9개 중 7개가 남았다 → 남은 주소 (11/07 보안 검토). 모델은 한 번만 읽는다."""
+    ner = FakeNer(addresses=["마포구 가상로 123"])
+    r = RuleMasker([Entry("사내", "가상")], ner=ner).mask([{"role": "user", "content": "마포구 가상로 123으로 보내 줘"}])
+    assert r.messages[0]["content"] == "마포구 [사내1]로 123으로 보내 줘" and r.suspected == ["주소"]
+    assert len(ner.texts) == 1
+
+
+def test_floor_left_after_regex_masked_the_address_is_not_suspected():
+    """정규식이 시·도~번호를 가리고 층만 남으면(주소 글자 15개 중 2개) 남은 주소로 보지 않는다. 엄격 수준이 정상 요청을 막지 않게."""
+    ner = FakeNer(addresses=["성남시 분당구 가상로 45 3층"])
+    r = RuleMasker([], ner=ner).mask([{"role": "user", "content": "성남시 분당구 가상로 45 3층으로 방문해 주세요"}])
+    assert r.messages[0]["content"] == "[주소1] 3층으로 방문해 주세요" and r.suspected == []
+
+
+def test_address_in_a_later_message_is_located_across_messages():
+    """주소 위치는 메시지를 이어 붙인 글 기준이다. 앞 메시지에 토큰이 있어도 뒤 메시지의 주소 자리를 맞게 찾는다."""
+    ner = FakeNer(names=["양미래"], addresses=["마포구 가상로 123"])
+    r = RuleMasker(ENTRIES, ner=ner).mask([{"role": "user", "content": "김민수·양미래 고객 010-1234-5678"},
+                                          {"role": "user", "content": "배송지는 마포구 가상로 123"}])
+    assert r.suspected == ["주소"]
+
+
+def test_without_model_masker_behaves_as_before():
+    r = RuleMasker(ENTRIES).mask([{"role": "user", "content": "양미래 고객에게"}])
+    assert r.messages[0]["content"] == "양미래 고객에게" and r.suspected == []
+
+
+def test_from_config_refuses_to_start_without_model(tmp_path, monkeypatch):
+    """설정으로 만들 때 모델 파일이 없으면 시작하지 않는다 (D23). conftest의 가짜 대체를 되돌려 진짜 불러오기를 쓴다."""
+    from gateway.masking import ner
+    monkeypatch.setattr("gateway.masking.masker.load_ner", ner.load)
+    real = tmp_path / "user_dictionary.txt"
+    real.write_text("고객,홍길동\n", encoding="utf-8")
+    cfg = MaskingConfig(user_dictionary_path=str(real), ner={"model_dir": str(tmp_path / "없음")})
+    with pytest.raises(NerModelError):
+        RuleMasker.from_config(cfg)

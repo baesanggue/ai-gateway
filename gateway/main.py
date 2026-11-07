@@ -42,7 +42,9 @@ def create_app(settings: Settings | None = None, *, transport=None, masker: Mask
         masker = app.state.gateway.masker
         return {"status": "ok", "security_level": app.state.settings.config.security_level,
                 # "example"이면 시연용 가상 사전으로 동작 중이다. 실제 고객명은 가려지지 않는다 (D21)
-                "dictionary": getattr(masker, "dictionary_source", None)}
+                "dictionary": getattr(masker, "dictionary_source", None),
+                # 이름 인식 모델 파일 (D23). 없으면 게이트웨이가 시작하지 않으므로, 실제 운영에서는 늘 값이 있다
+                "ner": getattr(masker, "ner_source", None)}
 
     app.include_router(router)
     return app

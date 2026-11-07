@@ -71,8 +71,9 @@ class DecisionService:
         self.local.close()
         self.cloud.close()
 
-    def judge_local(self, text: str) -> JudgeResult:
-        return self._ask("local", self.local, text, self.cfg.local_questions)
+    def judge_local(self, text: str, questions: list[str] | None = None) -> JudgeResult:
+        """questions를 주지 않으면 설정(decision.local_questions)대로 묻는다."""
+        return self._ask("local", self.local, text, self.cfg.local_questions if questions is None else questions)
 
     def judge_cloud(self, masked_text: str, has_masked_pii: bool) -> JudgeResult:
         qids = [q for q in self.cfg.cloud.questions
