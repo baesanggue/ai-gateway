@@ -294,9 +294,14 @@ def main():
     ap.add_argument("--seed", type=int, default=1031)
     ap.add_argument("--review", type=int, default=50, help="직접 검토할 무작위 표본 수")
     ap.add_argument("--rebuild", action="store_true", help="생성하지 않고 out-dir의 items.csv로 학습 줄만 다시 만든다")
+    ap.add_argument("--make-eval", type=Path, metavar="PILOT_DIR",
+                    help="생성하지 않고 시범 데이터로 학습 중 평가용 줄(out-dir/eval-pilot.jsonl)을 만든다 (#22)")
     args = ap.parse_args()
     if args.rebuild:
         rebuild(args.out_dir)
+        return
+    if args.make_eval:
+        make_eval(args.make_eval, args.out_dir)
         return
 
     rng = random.Random(args.seed)
@@ -346,7 +351,7 @@ def main():
 
     lines = build_lines(items)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    write_train(args.out_dir, lines)
+    write_train(args.out_dir / "train.jsonl", lines)
     with open(args.out_dir / "items.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(items[0]))
         w.writeheader()
@@ -393,8 +398,8 @@ def build_lines(items: list[dict]) -> list[dict]:
     return lines
 
 
-def write_train(out_dir: Path, lines: list[dict]) -> None:
-    with open(out_dir / "train.jsonl", "w", encoding="utf-8") as f:
+def write_train(path: Path, lines: list[dict]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
         for ln in lines:
             state = ln["masked"] if ln["source"] == "masked" else ln["original"]
             f.write(json.dumps(row(state, ln["labels"]), ensure_ascii=False) + "\n")
@@ -410,7 +415,7 @@ def rebuild(out_dir: Path) -> None:
     with open(out_dir / "items.csv", encoding="utf-8-sig", newline="") as f:
         items = list(csv.DictReader(f))
     lines = build_lines(items)
-    write_train(out_dir, lines)
+    write_train(out_dir / "train.jsonl", lines)
     summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     summary["label_counts"] = label_counts(lines)
     summary["intent_unlabeled_faq_like_service"] = sum(
@@ -419,6 +424,24 @@ def rebuild(out_dir: Path) -> None:
     print(json.dumps(summary["label_counts"]["intent"], ensure_ascii=False),
           "의도 정답을 비운 이용 문의:", summary["intent_unlabeled_faq_like_service"])
 
+
+
+def make_eval(pilot_dir: Path, out_dir: Path) -> None:
+    """학습 중 평가용 줄 (#22): 시범 데이터를 지금 정답 규칙으로 다시 만들고, 학습 데이터와 같거나 거의 같은 문장(0.9 이상)을 뺀다.
+    지금 범주 표에 없는 범주(짧지만 복잡: 10/31 검토에서 정답 오류 4/4)도 뺀다. 테스트셋은 여기에도 쓰지 않는다(마지막 비교에만)."""
+    ids = {c.id for c in CATEGORIES}
+    with open(pilot_dir / "items.csv", encoding="utf-8-sig", newline="") as f:
+        pilot = [i for i in csv.DictReader(f) if i["category"] in ids]
+    train = [norm(json.loads(line)["state"]) for line in (out_dir / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    lines, near = [], 0
+    for ln in build_lines(pilot):
+        state = norm(ln["masked"] if ln["source"] == "masked" else ln["original"])
+        if any(similarity(state, t) >= 0.9 for t in train):
+            near += 1
+            continue
+        lines.append(ln)
+    write_train(out_dir / "eval-pilot.jsonl", lines)
+    print(f"평가용 {len(lines)}줄 (학습 데이터와 거의 같은 {near}줄 뺌) → {out_dir / 'eval-pilot.jsonl'}")
 
 LABEL_KO = {"has_pii": "개인정보", "is_confidential": "기밀", "needs_raw_value": "원본 필요", "is_risky": "위험",
             "difficulty": "난이도", "intent": "의도"}
