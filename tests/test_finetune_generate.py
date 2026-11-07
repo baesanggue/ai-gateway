@@ -29,8 +29,22 @@ def test_same_placeholder_gets_same_value_and_token(faker):
     f = gen.fill("{이름} 고객({전화번호})에게 {이름} 님 앞으로 문자 써 줘. {이름2} 님도", faker)
     name = f.original.split(" ")[0]
     assert f.original.count(name) == 2
-    assert f.masked == "[고객1] 고객([전화번호1])에게 [고객1] 님 앞으로 문자 써 줘. [고객2] 님도"
+    m = re.fullmatch(r"(\[(?:고객|이름)\d\]) 고객\(\[전화번호1\]\)에게 \1 님 앞으로 문자 써 줘\. (\[(?:고객|이름)\d\]) 님도", f.masked)
+    assert m and m.group(1) != m.group(2)                       # 같은 자리표시 = 같은 토큰, 다른 이름 = 다른 토큰
     assert f.kinds == ["이름", "전화번호", "이름"]
+
+
+def test_name_tokens_mix_dictionary_and_unregistered_shapes():
+    """게이트웨이는 사전에 있는 이름을 [고객1], 사전에 없는 이름을 [이름1]로 보낸다 (D23). 학습 데이터에 둘 다 나온다.
+    번호는 토큰 종류마다 1부터 센다."""
+    faker = gen.Faker(random.Random(7))
+    masked = [gen.fill("{이름}·{이름2}·{이름3} 고객에게", faker).masked for _ in range(40)]
+    tokens = {t for m in masked for t in re.findall(r"\[(고객|이름)\d\]", m)}
+    assert tokens == {"고객", "이름"}
+    for m in masked:
+        for kind in ("고객", "이름"):
+            nums = [int(n) for n in re.findall(rf"\[{kind}(\d)\]", m)]
+            assert nums == list(range(1, len(nums) + 1))
 
 
 def test_order_number_is_filled_but_not_masked(faker):

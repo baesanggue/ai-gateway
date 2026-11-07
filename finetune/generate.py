@@ -52,6 +52,9 @@ STYLES = ["해요체 존댓말", "합니다체 격식 존댓말", "반말",
 
 PII_TOKEN = {"이름": "고객", "전화번호": "전화번호", "이메일": "이메일", "주민번호": "주민번호",
              "계좌번호": "계좌번호", "카드번호": "카드번호", "주소": "주소"}   # 자리표시 → 가명 토큰 종류
+# 이름 자리의 토큰은 둘 중 하나를 무작위로: 사전에 있는 이름 → [고객1], 사전에 없는 이름(이름 인식 모델, D23) → [이름1].
+# 게이트웨이가 실제로 보내는 두 모양을 다 배우게 한다 (11/07)
+NAME_TOKENS = ("고객", "이름")
 PLACEHOLDER = re.compile(r"\{(" + "|".join([*PII_TOKEN, "주문번호"]) + r")(\d*)\}")
 NO_PII = "사람 이름, 전화번호, 이메일, 주민등록번호, 계좌번호, 카드번호, 주소는 넣지 않는다."
 
@@ -231,8 +234,9 @@ def fill(template: str, faker: Faker) -> Filled:
         if key not in values:
             values[key] = getattr(faker, kind)()
             if kind in PII_TOKEN:
-                counts[kind] += 1
-                tokens[key] = f"[{PII_TOKEN[kind]}{counts[kind]}]"
+                token_kind = faker.r.choice(NAME_TOKENS) if kind == "이름" else PII_TOKEN[kind]
+                counts[token_kind] += 1                      # 번호는 토큰 종류마다 ([고객1], [이름1], [이름2])
+                tokens[key] = f"[{token_kind}{counts[token_kind]}]"
                 kinds.append(kind)
         return tokens.get(key, values[key]) if masked else values[key]
 
