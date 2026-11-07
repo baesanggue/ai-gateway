@@ -12,8 +12,13 @@
   choice  "이 요청에서 '<후보>'는 무엇인가?" — 사람 이름 / 사람을 가리키는 일반 낱말 / 그 밖의 낱말. P(사람 이름)을 쓴다
           (noul에서 "고객"·"민원인"을 이름으로 봐서, 그것을 따로 고를 자리를 준다)
 
+이름 인식 모델 (방법 2, #42): `ner` 단계. 판단 모델과 달리 원문(로컬)을 보고 NAME 위치를 찾는다.
+  가명화 부품에 넣으면 사전·정규식보다 먼저 원문에서 찾게 되므로, 측정도 원문으로 한다.
+  기준값은 NAME 조각 확률 평균에 적용한다.
+
 실행:
   uv run python bench/run_names.py run --model gliclass:v4-edge --question noul --out-dir bench/results/names-2026-11-07
+  uv run python bench/run_names.py ner --onnx onnx/model_int8.onnx --out-dir bench/results/names-2026-11-07
   uv run python bench/run_names.py summary --out-dir bench/results/names-2026-11-07     # 폴더의 결과 전부 비교
 """
 import argparse
@@ -124,6 +129,37 @@ def run(out: Path, model: str | None, mode: str) -> None:
     rm._write(run_file(out, model, mode), records)
 
 
+def run_ner(out: Path, onnx_file: str) -> None:
+    import time
+
+    from gateway.masking.ner import NerModel
+    settings = load_settings()
+    masker = rm.masker_for("B", settings)
+    ner = NerModel(ROOT / "models" / "koelectra-ko-pii-ner", onnx_file)
+    ner.find("예열 김예열")
+    records = []
+    for name, items in build_sets().items():
+        for it in items:
+            masked = masker.mask([{"role": "user", "content": it["text"]}]).messages[0]["content"]
+            left = [n for n in it["names"] if n in masked]
+            t0 = time.perf_counter()
+            spans = ner.find(it["text"])
+            latency = (time.perf_counter() - t0) * 1000
+            names = [s for s in spans if s.label == "NAME"]
+            probs: dict[str, float] = {}
+            for s in names:
+                probs[s.text] = max(probs.get(s.text, 0.0), s.score)
+            records.append({"set": name, "id": it["id"], "names": "|".join(left), "all_names": "|".join(it["names"]),
+                            "options": json.dumps([[s.text] for s in names], ensure_ascii=False),
+                            "probs": json.dumps(probs, ensure_ascii=False), "questions": 1,
+                            "latency_ms": round(latency, 1), "error": "",
+                            "other": json.dumps([[s.label, s.text] for s in spans if s.label != "NAME"],
+                                                ensure_ascii=False),
+                            "masked": it["text"]})
+        print(f"ner {onnx_file}: {name} 끝 ({len(items)}문장)")
+    rm._write(out / f"ner_koelectra-{Path(onnx_file).stem}.csv", records)
+
+
 # ---------- 집계 ----------
 def found_names(row: dict, th: float) -> list[str]:
     """낱말마다 기준값 이상인 가장 긴 이름 모양 (NameFinder와 같은 규칙)."""
@@ -136,16 +172,24 @@ def found_names(row: dict, th: float) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def covers(found: str, name: str) -> bool:
+    """찾은 조각이 이름을 다 가리는가 ("양미래" 또는 "양미래를"처럼 뒤에 조사까지)."""
+    return found == name or found.startswith(name)
+
+
 def score(rows: list[dict], th: float) -> dict:
     names = hit = partial = wrong = 0
     wrong_ids = []
     for r in rows:
         truth = [n for n in r["names"].split("|") if n]
+        # 사전이 이미 가린 이름(김민수 등)을 이름 인식 모델이 또 찾아도 잘못 가린 것이 아니다
+        known = [n for n in r.get("all_names", r["names"]).split("|") if n] or truth
         found = found_names(r, th)
         names += len(truth)
-        hit += sum(n in found for n in truth)
-        partial += sum(n not in found and any(f != n and n.startswith(f) for f in found) for n in truth)
-        bad = [f for f in found if not any(n.startswith(f) for n in truth)]   # 이름이 아닌 낱말을 이름으로 봄
+        hit += sum(any(covers(f, n) for f in found) for n in truth)
+        partial += sum(not any(covers(f, n) for f in found) and any(f != n and n.startswith(f) for f in found)
+                       for n in truth)
+        bad = [f for f in found if not any(covers(f, n) or n.startswith(f) for n in known)]   # 이름이 아닌 것을 이름으로
         if bad:
             wrong += 1
             wrong_ids.append((r["id"], bad))
@@ -170,10 +214,10 @@ def _pct(n: int, d: int) -> str:
 SETS = ("testset", "pilot", "swap")
 
 
-def evaluate(rows: list[dict]) -> dict:
-    """testset에서 기준값을 고르고 세 세트에 그대로 적용한다."""
+def evaluate(rows: list[dict], fixed: float | None = None) -> dict:
+    """testset에서 기준값을 고르고 세 세트에 그대로 적용한다. fixed를 주면 고르지 않고 그 값을 쓴다."""
     by = {s: [r for r in rows if r["set"] == s] for s in SETS}
-    th = choose_threshold(by["testset"])
+    th = fixed if fixed is not None else choose_threshold(by["testset"])
     scores = {s: score(rs, th) for s, rs in by.items()}
     ok = all((sc["recall"] is None or sc["recall"] >= TARGET_RECALL) and sc["wrong_rate"] <= TARGET_WRONG
              for sc in scores.values())
@@ -183,19 +227,22 @@ def evaluate(rows: list[dict]) -> dict:
 
 
 def summary(out: Path) -> None:
-    runs = {p.stem: evaluate(list(csv.DictReader(p.open(encoding="utf-8-sig")))) for p in sorted(out.glob("*-*.csv"))}
+    # 이름 인식 모델은 라벨을 직접 붙이므로 기준값 없이 모델 판단 그대로 쓴다 (테스트셋에 맞춘 값이 아니다)
+    runs = {p.stem: evaluate(list(csv.DictReader(p.open(encoding="utf-8-sig"))),
+                             0.0 if p.stem.startswith("ner_") else None) for p in sorted(out.glob("*-*.csv"))}
     lines = [f"# 사전에 없는 이름 찾기 (#53) — {date.today().isoformat()}", "",
              "방법: 코드가 이름 후보(성씨로 시작하는 2~4글자 낱말, 조사·호칭 뗌)를 뽑고, 로컬 판단 모델이 후보마다 사람 이름인지 판단한다. "
              "사전은 시연 사전만 쓴다 (사전에 없는 이름이 남는다).", "",
              f"목표: 사전에 없는 이름 재현율 ≥ {TARGET_RECALL:.0%}, 잘못 가린 문장 ≤ {TARGET_WRONG:.0%}. "
-             f"기준값은 testset에서 재현율 {TARGET_RECALL:.0%}를 지키는 가장 높은 값으로 고르고, pilot·swap에는 그대로 쓴다.", "",
+             f"판단 모델의 기준값은 testset에서 재현율 {TARGET_RECALL:.0%}를 지키는 가장 높은 값으로 고르고, pilot·swap에는 그대로 쓴다. "
+             "이름 인식 모델(`ner_`)은 라벨을 직접 붙이므로 기준값 없이 모델 판단 그대로 쓴다 (0.000).", "",
              "| 모델-질문 | 기준값 | testset 재현율 | testset 잘못 가림 | pilot 재현율 | pilot 잘못 가림 | swap 재현율 | swap 잘못 가림 | 평균 지연 | 목표 |",
              "|---|---|---|---|---|---|---|---|---|---|"]
     for name, ev in runs.items():
         cells = [f"{_pct(sc['hit'], sc['names'])} | {_pct(sc['wrong'], sc['sentences'])}" for sc in ev["scores"].values()]
         lines.append(f"| {name} | {ev['th']:.3f} | " + " | ".join(cells) +
                      f" | {statistics.mean(ev['lat']):.0f}ms | {'✅' if ev['ok'] else '❌'} |")
-    best_name = min(runs, key=lambda k: runs[k]["scores"]["pilot"]["wrong_rate"])
+    best_name = min(runs, key=lambda k: (runs[k]["scores"]["pilot"]["wrong_rate"], -(runs[k]["scores"]["pilot"]["recall"] or 0)))
     best = runs[best_name]
     qs = best["questions"]
     lines += ["", f"## 가장 나은 것: `{best_name}` (pilot에서 잘못 가린 문장이 가장 적음)", "",
@@ -222,14 +269,17 @@ def summary(out: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("step", choices=["run", "summary"])
+    ap.add_argument("step", choices=["run", "ner", "summary"])
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--model", help="Ollaya 모델 (기본: config.yaml)")
     ap.add_argument("--question", choices=["noul", "choice"], default="noul")
+    ap.add_argument("--onnx", default="onnx/model_int8.onnx", help="이름 인식 모델 파일 (models/koelectra-ko-pii-ner 안)")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
     if args.step == "run":
         run(args.out_dir, args.model, args.question)
+    elif args.step == "ner":
+        run_ner(args.out_dir, args.onnx)
     else:
         summary(args.out_dir)
 
