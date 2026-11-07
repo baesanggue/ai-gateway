@@ -84,7 +84,7 @@ def test_local_sends_original_text_to_systemone_and_applies_thresholds(tmp_path)
     assert body["state"] == ORIGINAL and body["model"] == "gliclass:v4-edge"
     assert list(body["questions"]) == ["has_pii", "is_confidential"]
     assert r.judgments["has_pii"].value is True            # 0.10 ≥ 기준값 0.09
-    assert r.judgments["is_confidential"].value is False   # 0.05 < 기준값 0.12
+    assert r.judgments["is_confidential"].value is False   # 0.05 < 기준값 0.10
     assert r.engine == "local" and r.available
 
 
