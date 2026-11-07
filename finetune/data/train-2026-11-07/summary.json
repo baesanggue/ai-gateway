@@ -1,0 +1,61 @@
+{
+ "model": "gemma4:12b",
+ "temperature": 0.9,
+ "seed": 1107,
+ "calls": 264,
+ "seconds": 642.4,
+ "generated": 2640,
+ "kept": 2531,
+ "dropped": {
+  "testset_overlap": 9,
+  "near_duplicate": 70,
+  "direct_name": 7,
+  "unknown_placeholder": 8,
+  "placeholder_missing": 15
+ },
+ "lines": 2977,
+ "masked_lines": 446,
+ "kept_by_category": {
+  "faq": 203,
+  "service": 214,
+  "task_simple": 202,
+  "task_complex": 219,
+  "pii_maskable": 209,
+  "needs_raw": 204,
+  "pii_word_only": 215,
+  "order_number": 220,
+  "confidential": 218,
+  "risky": 218,
+  "security_benign": 214,
+  "off_topic": 195
+ },
+ "label_counts": {
+  "has_pii": {
+   "아니오": 2531,
+   "예": 446
+  },
+  "is_confidential": {
+   "아니오": 2726,
+   "예": 251
+  },
+  "needs_raw_value": {
+   "아니오": 418,
+   "예": 408
+  },
+  "is_risky": {
+   "아니오": 2759,
+   "예": 218
+  },
+  "difficulty": {
+   "simple": 1472,
+   "complex": 219
+  },
+  "intent": {
+   "faq": 203,
+   "service": 148,
+   "task": 1304,
+   "off_topic": 195
+  }
+ },
+ "intent_unlabeled_faq_like_service": 66
+}
