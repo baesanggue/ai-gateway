@@ -52,9 +52,10 @@
   },
   "intent": {
    "faq": 203,
-   "service": 214,
+   "service": 148,
    "task": 1304,
    "off_topic": 195
   }
- }
+ },
+ "intent_unlabeled_faq_like_service": 66
 }
