@@ -19,9 +19,11 @@ RAW_VALUES = ("김민수", "010-1234-5678")
 
 
 @contextmanager
-def gateway(tmp_path, upstream, masker=None, level="basic", log=None):
+def gateway(tmp_path, upstream, masker=None, level="basic", log=None, **decision):
     settings = test_settings(tmp_path)
     settings.config.security_level = level
+    for key, value in decision.items():                       # 판단 설정을 바꾸는 시험 (예: local_check_system_messages)
+        setattr(settings.config.decision, key, value)
     log = log if log is not None else RequestLog(tmp_path / "gateway.db")
     app = create_app(settings, transport=httpx.MockTransport(upstream), masker=masker, log=log)
     with TestClient(app) as client:
@@ -232,24 +234,40 @@ def test_basic_sends_suspected_address_but_keeps_it_out_of_the_log(tmp_path, mon
     assert "가상로".encode() not in stored
 
 
-def test_strict_does_not_block_a_chatbot_with_a_long_system_prompt(tmp_path):
-    """실제 챗봇은 system 지시문이 길다. 예전에는 대화 전체가 판단 모델 길이(약 1,275자, #39)를 넘어 엄격 수준이 모두 막았다.
-    이제 구간으로 나눠 묻고, 다음 요청에서는 반복되는 지시문 구간을 다시 묻지 않는다 (#71)."""
+LONG_DOC = "11월 고객 문의 정리: 배송 지연 문의가 가장 많았고, 교환 요청은 사이즈 문제가 대부분이었다. " * 35   # 약 1,800자
+
+
+def test_strict_judges_a_long_pasted_document_in_chunks_and_remembers_it(tmp_path):
+    """붙여넣은 문서는 판단 모델 길이(약 1,275자, #39)를 넘는다. 예전에는 엄격 수준이 판단 실패로 막았다.
+    이제 구간으로 나눠 묻고, 다음 요청에서는 이전 대화로 반복되는 문서 구간을 다시 묻지 않는다 (#71)."""
     up = FakeUpstream()
-    system = {"role": "system", "content": "너는 쇼핑몰 상담원이다. 친절하게 짧게 답한다. 환불 규정은 7일 이내다. " * 40}
+    doc = {"role": "user", "content": LONG_DOC + "\n위 내용을 세 줄로 요약해 줘"}
     with gateway(tmp_path, up, level="strict") as (client, log):
-        r1 = ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        r1 = ask(client, doc["content"])                                    # 메시지 하나는 내용 문자열로 넘긴다
         first = len(up.bodies("/v1/systemone"))
-        r2 = ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"},
-                 {"role": "assistant", "content": "네, 공지입니다."}, {"role": "user", "content": "조금 더 짧게"})
+        r2 = ask(client, doc, {"role": "assistant", "content": "요약입니다."}, {"role": "user", "content": "조금 더 짧게"})
         row1 = log.get(r1.headers["x-gateway-request-id"])
         row2 = log.get(r2.headers["x-gateway-request-id"])
     assert row1["route"] == "cheap" and row2["route"] == "cheap"
     local1 = row1["judgments"]["local"]
-    assert local1["parts"] >= 2 and local1["error"] is None                   # 지시문 약 1,700자 → 두 구간 이상
+    assert local1["parts"] >= 2 and local1["error"] is None
     assert all(len(b["state"]) <= 1000 for b in up.bodies("/v1/systemone"))
     assert row2["judgments"]["local"]["cached_parts"] >= 1
-    assert len(up.bodies("/v1/systemone")) - first < local1["parts"]          # 지시문 구간은 다시 묻지 않았다
+    assert len(up.bodies("/v1/systemone")) - first < local1["parts"]          # 문서 구간은 다시 묻지 않았다
+
+
+@pytest.mark.parametrize("check_system", [False, True], ids=["default-skip", "configured-include"])
+def test_system_prompt_is_left_out_of_local_confidential_judgment_unless_configured(tmp_path, check_system):
+    """system·developer 지시문은 운영하는 회사가 정한 설정이다. 판단 모델이 정책 문장을 기밀로 봐서(11/08 실측 0.47)
+    기본으로 넣지 않는다 (#71). 위험 판단에는 지시문도 들어간다(#12). 설정으로 넣을 수 있다."""
+    up = FakeUpstream()
+    system = {"role": "system", "content": "너는 쇼핑몰 상담원이다. 배송비는 3,000원, VIP 할인율은 7%다. " * 30}
+    with gateway(tmp_path, up, level="strict", local_check_system_messages=check_system) as (client, _):
+        ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+    states = "\n".join(b["state"] for b in up.bodies("/v1/systemone"))
+    assert ("배송비는 3,000원" in states) is check_system and "회의 공지 짧게 써 줘" in states
+    history = [b for b in up.bodies("/v1/decisions") if [q["name"] for q in b["questions"]] == ["is_risky"]]
+    assert history and "배송비는 3,000원" in history[0]["input"]                # 위험 판단은 지시문도 본다
 
 
 def test_without_masker_local_judge_is_asked_about_pii_regardless_of_config(tmp_path):
