@@ -2,7 +2,7 @@
 클라우드 판단·LLM은 가짜라 외부 호출·비용이 없다.
 
 확인할 것
-0. 지시문을 로컬 기밀 판단에 넣지 않는 기본 설정과 넣는 설정을 나란히 (local_check_system_messages, 11/08 결정)
+0. 운영자가 등록한 지시문(trusted_system_prompts, #73)은 로컬 기밀 판단에서 빠지고, 등록하지 않은 지시문은 판단된다
 1. 기밀이 없는 긴 지시문: 엄격 수준에서 막히지 않는가 (구간이 많아져 오탐이 날 수 있다)
 2. 지시문 속 기밀 문장: 엄격 수준이 찾아 막는가
 3. 두 번째·세 번째 턴: 반복되는 구간은 기억해 다시 묻지 않는가, 지연이 줄어드는가
@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from gateway.config import load_settings  # noqa: E402
 from gateway.decision.chunks import chunks  # noqa: E402
-from gateway.pipeline import Gateway  # noqa: E402
+from gateway.pipeline import Gateway, prompt_hash  # noqa: E402
 from gateway.storage.log import RequestLog  # noqa: E402
 from tests.fakes import FakeUpstream, test_settings  # noqa: E402
 
@@ -61,12 +61,12 @@ def routing(real_base: str):
     return httpx.MockTransport(route)
 
 
-def conversation(name: str, system: str, out: Path, base_url: str, check_system: bool = False,
+def conversation(name: str, system: str, out: Path, base_url: str, trusted: str | None = None,
                  turns: list[str] = TURNS) -> dict:
     s = test_settings(out)
     s.config.security_level = "strict"
     s.config.decision.base_url = base_url
-    s.config.decision.local_check_system_messages = check_system
+    s.config.decision.trusted_system_prompts = [trusted] if trusted else []
     log = RequestLog(out / f"long-chat-{name}.db")
     gw = Gateway.from_settings(s, transport=routing(base_url), log=log)
     messages = [{"role": "system", "content": system}]
@@ -85,8 +85,8 @@ def conversation(name: str, system: str, out: Path, base_url: str, check_system:
         messages.append({"role": "assistant", "content": reply.text or "네, 안내해 드리겠습니다."})
     # 구간별 확률: 판단 서비스가 기억한 답을 그대로 읽는다 (다시 부르지 않음)
     svc = gw.decision
-    skip = () if check_system else ("system", "developer")
-    qs_parts = chunks([m["content"] for m in messages[:-1] if m["role"] not in skip], s.config.decision.local_chunk_chars,
+    registered = gw._trusted_prompts
+    qs_parts = chunks([m["content"] for m in messages[:-1] if not (m["role"] == "system" and prompt_hash(m["content"]) in registered)], s.config.decision.local_chunk_chars,
                       s.config.decision.local_chunk_overlap)
     from gateway.decision.questions import QUESTIONS
     qs = {q: QUESTIONS[q] for q in s.config.decision.local_questions}
@@ -108,12 +108,14 @@ def main() -> None:
     half = len(SYSTEM) // 2
     with_secret = SYSTEM[:half] + SECRET + SYSTEM[half:]
     user_secret = [TURNS[0], "다음 분기 A사 인수 계획(인수가 850억, 인력 20% 감축 검토)을 공지문으로 다듬어 줘", TURNS[2]]
+    registered = args.out / "shop-bot.txt"                 # 운영자가 등록한 지시문 (시연용 가상 지시문)
+    registered.write_text(SYSTEM, encoding="utf-8")
     result = {
-        "기본(지시문 제외): 평범한 지시문": conversation("benign", SYSTEM, args.out, base),
-        "지시문 포함: 평범한 지시문": conversation("benign-include", SYSTEM, args.out, base, check_system=True),
-        "기본(지시문 제외): 지시문에 기밀": conversation("secret-in-system", with_secret, args.out, base),
-        "지시문 포함: 지시문에 기밀": conversation("secret-include", with_secret, args.out, base, check_system=True),
-        "기본(지시문 제외): 사용자가 기밀 입력": conversation("user-secret", SYSTEM, args.out, base, turns=user_secret),
+        "등록한 지시문": conversation("registered", SYSTEM, args.out, base, trusted=str(registered)),
+        "등록하지 않은 지시문": conversation("unregistered", SYSTEM, args.out, base),
+        "등록한 지시문에 기밀을 덧붙임 (우회 시도)": conversation("spoofed", with_secret, args.out, base, trusted=str(registered)),
+        "등록한 지시문 + 사용자가 기밀 입력": conversation("user-secret", SYSTEM, args.out, base, trusted=str(registered),
+                                                   turns=user_secret),
     }
     print(json.dumps(result, ensure_ascii=False, indent=1))
     (args.out / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
