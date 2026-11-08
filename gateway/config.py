@@ -56,6 +56,7 @@ class DecisionConfig(BaseModel):
     local_chunk_chars: int = 1000
     local_chunk_overlap: int = 100
     local_max_new_chunks: int = 8      # 한 요청에서 새로 판단할 구간 상한. 넘으면 판단 실패로 처리한다 (D19)
+    local_max_calls: int = 16          # 한 요청의 로컬 판단 호출 상한. 길다고 거부된 구간을 반으로 나눠 다시 묻는 것도 센다
     local_cache_size: int = 2048       # 기억할 구간 판단 수 (같은 글 → 같은 답, 11/08 확인)
     # 클라우드 판단 (OpenAI Decisions, 가명화된 문장만)
     cloud: CloudDecisionConfig

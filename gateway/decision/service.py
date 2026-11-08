@@ -123,10 +123,11 @@ class DecisionService:
             return JudgeResult("local", self.local.model, parts=len(parts), cached_parts=cached_parts,
                                error=f"{TOO_LONG}: 새로 판단할 구간 {new}개 (상한 {self.cfg.local_max_new_chunks}개)")
         answers, latency, tokens = [], 0.0, 0
+        budget = [self.cfg.local_max_calls]     # 이 요청에서 남은 판단 호출 수. 반으로 나눠 다시 묻는 것도 여기서 뺀다
         try:
             for part, key in zip(parts, keys):
                 if key not in known:
-                    known[key], ms, n = self._ask_part(part, qs, depth=0)
+                    known[key], ms, n = self._ask_part(part, qs, 0, budget)
                     latency, tokens = latency + ms, tokens + n
                     self._remember(key, known[key])
                 answers.append(known[key])
@@ -137,15 +138,20 @@ class DecisionService:
         return JudgeResult("local", self.local.model, {q: self._judgment(q, a) for q, a in merged.items()},
                            latency, tokens, cached=cached_parts == len(parts), parts=len(parts), cached_parts=cached_parts)
 
-    def _ask_part(self, text: str, qs: dict, depth: int) -> tuple[dict[str, EngineAnswer], float, int]:
-        """구간 하나. 판단 모델이 그래도 길다고 하면(글자당 토큰이 많은 글) 반으로 나눠 다시 묻는다 (세 번까지)."""
+    def _ask_part(self, text: str, qs: dict, depth: int, budget: list[int]) -> tuple[dict[str, EngineAnswer], float, int]:
+        """구간 하나. 판단 모델이 그래도 길다고 하면(글자당 토큰이 많은 글) 반으로 나눠 다시 묻는다 (세 번까지).
+        호출마다 요청의 예산(local_max_calls)에서 뺀다. 예산이 없으면 실패다: 다시 묻기가 구간마다 최대 15번이라,
+        글자당 토큰이 많은 글로 상한(새 구간 8개)을 넘는 호출을 만들 수 없게 한다 (11/08 보안 검토)."""
+        if budget[0] <= 0:
+            raise DecisionError(f"{TOO_LONG}: 판단 호출 상한 {self.cfg.local_max_calls}번을 넘음")
+        budget[0] -= 1
         try:
             r = self.local.decide(text, qs)
             return r.answers, r.latency_ms, r.input_tokens
         except InputTooLong:
             if depth >= 3:
                 raise
-        results = [self._ask_part(h, qs, depth + 1) for h in halves(text)]
+        results = [self._ask_part(h, qs, depth + 1, budget) for h in halves(text)]
         return (_merge([a for a, _, _ in results], qs), sum(ms for _, ms, _ in results),
                 sum(n for _, _, n in results))
 

@@ -29,6 +29,7 @@ decision:
   local_chunk_chars: 1000
   local_chunk_overlap: 100
   local_max_new_chunks: 8      # 한 요청에서 새로 물을 구간 상한. 넘으면 판단 실패 → 엄격 차단·기본 진행 (D19)
+  local_max_calls: 16          # 한 요청의 로컬 판단 호출 상한. 길다고 거부된 구간을 반으로 나눠 다시 묻는 것도 센다
   local_cache_size: 2048
 
   # 클라우드 (OpenAI Decisions) — 가명화된 문장만 보낸다. 키는 .env의 OPENAI_API_KEY

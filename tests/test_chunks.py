@@ -100,6 +100,16 @@ def test_chunk_still_too_long_is_halved_and_asked_again():
         len(s) <= 600 for s in local.states if s not in local.states[:1])
 
 
+def test_halving_retries_count_toward_the_per_request_call_budget():
+    """글자당 토큰이 많은 글로 모든 구간을 거부되게 만들어도, 다시 묻기까지 합친 호출 수가 상한을 넘지 않는다 (보안 검토)."""
+    # 1,000·500·250자는 거부, 125자는 받는다 → 구간마다 1 + 2 + 4 + 8 = 15번. 새 구간 4개면 60번이 될 뻔
+    local = Local(limit=200)
+    r = service(local, local_max_calls=16).judge_local(SENTENCE * 60)
+    assert not r.available and "호출 상한" in r.error and len(local.states) == 16
+    ok = service(Local(limit=200), local_max_calls=100).judge_local(SENTENCE * 60)   # 예산이 넉넉하면 끝까지 판단한다
+    assert ok.available
+
+
 def test_too_many_new_chunks_fail_without_calling_the_model():
     local = Local()
     r = service(local, local_max_new_chunks=2).judge_local(SENTENCE * 60)
