@@ -57,9 +57,10 @@ class DecisionConfig(BaseModel):
     local_chunk_overlap: int = 100
     local_max_new_chunks: int = 8      # 한 요청에서 새로 판단할 구간 상한. 넘으면 판단 실패로 처리한다 (D19)
     local_max_calls: int = 16          # 한 요청의 로컬 판단 호출 상한. 길다고 거부된 구간을 반으로 나눠 다시 묻는 것도 센다
-    # system·developer 메시지(운영하는 회사가 정한 지시문)도 로컬 기밀 판단에 넣을지 (#71, 11/08 결정: 기본 넣지 않음).
-    # 판단 모델이 정책 문장(배송비·할인율 등)을 기밀로 봐서 엄격 수준이 모든 대화를 막았다. 회사가 지시문에 기밀을 넣으면 못 잡는다
-    local_check_system_messages: bool = False
+    # 로컬 기밀 판단에서 뺄 지시문: 운영자가 등록한 파일과 내용이 정확히 같은 system·developer 메시지만 뺀다 (#73).
+    # 역할(role)만 보고 빼면 클라이언트가 기밀을 system 메시지에 넣어 엄격 수준을 피할 수 있다(보안 검토). 등록이 없으면 전부 판단.
+    # 판단 모델이 정책 문장(배송비·할인율 등)을 기밀로 봐서(실측 0.47), 등록하지 않은 긴 지시문은 엄격 수준에서 막힐 수 있다
+    trusted_system_prompts: list[str] = []
     local_cache_size: int = 2048       # 기억할 구간 판단 수 (같은 글 → 같은 답, 11/08 확인)
     # 클라우드 판단 (OpenAI Decisions, 가명화된 문장만)
     cloud: CloudDecisionConfig

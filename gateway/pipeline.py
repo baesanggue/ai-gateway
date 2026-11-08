@@ -14,13 +14,15 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
-from gateway.config import Settings
+from gateway.config import ROOT, Settings
 from gateway.decision.questions import QUESTIONS
 from gateway.decision.service import DecisionService, JudgeResult
 from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
 from gateway.llm.cost import baseline_cost, request_cost
 from gateway.masking.masker import Masker, RuleMasker, UnavailableMasker
+from gateway.masking.patterns import normalize_text
 from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
                                     decide_suspected, decide_unmasked, decide_without_masking, match_faq)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
@@ -63,6 +65,8 @@ class Gateway:
         self.masker = masker or UnavailableMasker()
         self._history_cache: OrderedDict[str, tuple[float, JudgeResult]] = OrderedDict()   # 해시 → (만료 시각, 판단)
         self._cache_lock = threading.Lock()                                  # FastAPI는 요청을 여러 스레드에서 처리한다
+        # 운영자가 등록한 지시문의 해시 (#73). 내용이 같은 system·developer 메시지만 로컬 기밀 판단에서 뺀다
+        self._trusted_prompts = load_trusted_prompts(settings.config.decision.trusted_system_prompts)
 
     @classmethod
     def from_settings(cls, settings: Settings, transport=None, masker: Masker | None = None,
@@ -96,11 +100,11 @@ class Gateway:
             if not self.masker.available and "has_pii" not in questions:
                 questions = [*questions, "has_pii"]      # 가명화 부품이 없으면(M1) 개인정보가 있는지 물어 막는다
             # 메시지마다 넘긴다: 판단 서비스가 판단 모델 길이에 맞춰 구간으로 나누고, 반복되는 구간은 기억한다 (#71)
-            # system·developer 지시문은 기본으로 넣지 않는다(local_check_system_messages, D19 보완). 가명화와
-            # 위험 판단(이전 대화·지시문 포함)은 그대로 전부 거친다
-            skip = () if cfg.decision.local_check_system_messages else ("system", "developer")
+            # 운영자가 등록한 지시문과 내용이 같은 system·developer 메시지만 뺀다 (#73). 역할만 보고 빼면
+            # 클라이언트가 기밀을 system 메시지에 넣어 피할 수 있다. 가명화와 위험 판단은 지시문까지 전부 거친다
             local = self.decision.judge_local(
-                [m["content"] for m in masked.messages if m["content"] and m["role"] not in skip], questions)
+                [m["content"] for original, m in zip(messages, masked.messages)
+                 if m["content"] and not self._is_trusted_prompt(original)], questions)
             trace.judges.append(local)
             if not self.masker.available:
                 decision = decide_without_masking(masked.has_pii, local, msgs)
@@ -131,6 +135,10 @@ class Gateway:
         restored = self.masker.restore(result.text, masked.mapping)
         trace.unrestored = restored.unrestored
         return self._finish(trace, decision, t0, restored.text, result.finish_reason, result=result)
+
+    def _is_trusted_prompt(self, message: dict[str, str]) -> bool:
+        """운영자가 등록한 지시문인가. 역할이 system·developer이고, 가리기 전 원문이 등록한 파일과 같아야 한다."""
+        return message["role"] in ("system", "developer") and prompt_hash(message["content"]) in self._trusted_prompts
 
     def _judge_history(self, text: str) -> JudgeResult:
         """이전 대화 위험 판단. 챗봇은 매번 같은 system 지시문을 보내므로, 같은 내용은 결과를 기억해 다시 묻지 않는다.
@@ -196,6 +204,27 @@ class Gateway:
             self.log.save(record)
         except Exception as e:   # 로그 때문에 응답이 실패하면 안 된다. 메시지에 요청 내용을 넣지 않는다
             logger.error("요청 로그 저장 실패 (%s): %s", record.id, type(e).__name__)
+
+
+class TrustedPromptMissing(RuntimeError):
+    """등록한 지시문 파일이 없다. 게이트웨이를 시작하지 않는다 (#73)."""
+
+
+def prompt_hash(text: str) -> str:
+    """지시문 비교용 해시. 표기만 다른 것(NFC, 전각, 줄바꿈 CRLF, 앞뒤 공백)은 같게 본다. 그 밖의 한 글자라도 다르면 다르다."""
+    return hashlib.sha256(normalize_text(text).replace("\r\n", "\n").strip().encode("utf-8")).hexdigest()
+
+
+def load_trusted_prompts(paths: list[str]) -> set[str]:
+    """운영자가 등록한 지시문 파일들의 해시. 상대 경로는 저장소 최상위 기준. 파일이 없으면 시작하지 않는다."""
+    hashes = set()
+    for p in paths:
+        path = Path(p) if Path(p).is_absolute() else ROOT / p
+        if not path.is_file():
+            raise TrustedPromptMissing(f"등록한 지시문 파일 {p}이(가) 없어 게이트웨이를 시작하지 않습니다 "
+                                       "(config.yaml의 decision.trusted_system_prompts)")
+        hashes.add(prompt_hash(path.read_text(encoding="utf-8-sig")))
+    return hashes
 
 
 def _last_user_index(messages: list[dict[str, str]]) -> int:
