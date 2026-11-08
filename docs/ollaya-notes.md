@@ -71,6 +71,7 @@ irm https://ollaya.dev/install.ps1 | iex
 | `noul` | 예/아니오. `criteria`는 선택(`{"true": ..., "false": ...}`) |
 | `instructions` 생략 시 | 질문 id를 대신 읽는다. 그래서 id도 의미 있게 짓는다 |
 | `state` 길이 | 최대 65,536토큰. `/v1/*`에서 모델 컨텍스트를 넘으면 잘라서 답하지 않고 `422 STATE_TRUNCATED` |
+| `gliclass:v4-edge` 실측 (11/08, #39) | **약 1,024토큰**에서 거부: 한국어 문장 1,275자(1,018토큰)까지 됨, 숫자·영문 섞인 문서 1,537자(1,023토큰). 질문 1개 기준. 지연은 100자 0.22초 → 1,000자 약 2초 → 한계 근처 약 3초 (CPU). 응답 본문: `{"error": "state: part of state was dropped to fit the context of gliclass:v4-edge", "code": "STATE_TRUNCATED", …}` (`bench/results/max-length-2026-11-08/result.json`) |
 
 ## 6. 응답 형식과 신뢰도
 
