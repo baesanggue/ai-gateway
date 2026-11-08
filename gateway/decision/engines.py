@@ -38,6 +38,18 @@ class DecisionError(Exception):
     """
 
 
+TOO_LONG = "입력이 판단 모델이 읽을 수 있는 길이를 넘음"
+
+
+def _error_code(r: httpx.Response) -> str | None:
+    """오류 응답의 code 필드 (Ollaya: STATE_TRUNCATED). 본문이 JSON이 아니면 None."""
+    try:
+        body = r.json()
+    except ValueError:
+        return None
+    return body.get("code") if isinstance(body, dict) else None
+
+
 class Engine(Protocol):
     model: str
 
@@ -61,6 +73,10 @@ class _HttpEngine:
         t0 = time.perf_counter()
         try:
             r = self._client.post(self.path, json=self._body(text, questions))
+            if r.status_code == 422 and _error_code(r) == "STATE_TRUNCATED":
+                # 판단 모델이 읽을 수 있는 길이를 넘었다 (gliclass:v4-edge 약 1,024토큰, #39). 로그·화면에 이유가 보이게.
+                # 오류 본문은 남기지 않는다: 서버에 따라 요청 문장이 섞일 수 있다
+                raise DecisionError(f"{type(self).__name__}: {TOO_LONG} (422 STATE_TRUNCATED)")
             r.raise_for_status()
             res = r.json()
             answers = self._parse(res, questions)

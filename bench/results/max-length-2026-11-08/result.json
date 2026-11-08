@@ -1,0 +1,76 @@
+{
+ "model": "gliclass:v4-edge",
+ "questions": [
+  "is_confidential"
+ ],
+ "texts": {
+  "korean": {
+   "max_ok_chars": 1275,
+   "first_fail_chars": 1287,
+   "ok": {
+    "status": 200,
+    "ms": 2779.1,
+    "input_tokens": 1018,
+    "error": null
+   },
+   "fail": {
+    "status": 422,
+    "ms": 2858.9,
+    "input_tokens": null,
+    "error": "state: part of state was dropped to fit the context of gliclass:v4-edge"
+   },
+   "latency": {
+    "100": 219.2,
+    "500": 867.2,
+    "1000": 1933.5,
+    "1275": 2778.8
+   }
+  },
+  "mixed": {
+   "max_ok_chars": 1537,
+   "first_fail_chars": 1550,
+   "ok": {
+    "status": 200,
+    "ms": 2886.9,
+    "input_tokens": 1023,
+    "error": null
+   },
+   "fail": {
+    "status": 422,
+    "ms": 2917.2,
+    "input_tokens": null,
+    "error": "state: part of state was dropped to fit the context of gliclass:v4-edge"
+   },
+   "latency": {
+    "100": 228.2,
+    "500": 776.8,
+    "1000": 1726.1,
+    "1537": 3079.2
+   }
+  }
+ },
+ "gateway": [
+  {
+   "level": "basic",
+   "chars": 1287,
+   "route": "cheap",
+   "reasons": [
+    "simple"
+   ],
+   "local_error": "SystemOneEngine: 입력이 판단 모델이 읽을 수 있는 길이를 넘음 (422 STATE_TRUNCATED)",
+   "cloud_called": true,
+   "text_logged": true
+  },
+  {
+   "level": "strict",
+   "chars": 1287,
+   "route": "block",
+   "reasons": [
+    "local_error"
+   ],
+   "local_error": "SystemOneEngine: 입력이 판단 모델이 읽을 수 있는 길이를 넘음 (422 STATE_TRUNCATED)",
+   "cloud_called": false,
+   "text_logged": true
+  }
+ ]
+}

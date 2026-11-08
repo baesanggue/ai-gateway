@@ -169,6 +169,32 @@ def test_systemone_score_probabilities_are_mapped_to_level_labels():
     assert r.answers["difficulty"].probs == {"simple": 0.3, "complex": 0.7}
 
 
+def test_too_long_input_is_reported_as_too_long_without_the_body():
+    """판단 모델이 읽을 수 있는 길이를 넘으면(Ollaya 422 STATE_TRUNCATED, #39) 로그에 이유가 보이게. 본문은 남기지 않는다."""
+    from gateway.decision.engines import TOO_LONG, DecisionError
+
+    def handler(request):
+        return httpx.Response(422, json={"error": "state: part of state was dropped to fit the context of gliclass:v4-edge",
+                                         "code": "STATE_TRUNCATED", "detail": [{"msg": "비밀 문장이 여기 있다고 치자"}]})
+
+    engine = SystemOneEngine("http://127.0.0.1:11435", "gliclass:v4-edge", 5, transport=httpx.MockTransport(handler))
+    with pytest.raises(DecisionError) as e:
+        engine.decide("아주 긴 문서", {"is_confidential": QUESTIONS["is_confidential"]})
+    assert TOO_LONG in str(e.value) and "STATE_TRUNCATED" in str(e.value)
+    assert "비밀 문장" not in str(e.value)
+
+
+def test_other_422_keeps_the_generic_http_error():
+    def handler(request):
+        return httpx.Response(422, json={"error": "bad questions", "code": "INVALID_QUESTION"})
+
+    engine = SystemOneEngine("http://127.0.0.1:11435", "gliclass:v4-edge", 5, transport=httpx.MockTransport(handler))
+    from gateway.decision.engines import TOO_LONG, DecisionError
+    with pytest.raises(DecisionError) as e:
+        engine.decide("요청", {"is_confidential": QUESTIONS["is_confidential"]})
+    assert "422" in str(e.value) and TOO_LONG not in str(e.value)
+
+
 def test_confidence_formula():
     assert confidence({"yes": 0.5}) == 0
     assert confidence({"yes": 0.0}) == 1
