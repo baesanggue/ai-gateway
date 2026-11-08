@@ -95,8 +95,8 @@ class Gateway:
             questions = cfg.decision.local_questions
             if not self.masker.available and "has_pii" not in questions:
                 questions = [*questions, "has_pii"]      # 가명화 부품이 없으면(M1) 개인정보가 있는지 물어 막는다
-            local = self.decision.judge_local("\n".join(m["content"] for m in masked.messages if m["content"]),
-                                              questions)
+            # 메시지마다 넘긴다: 판단 서비스가 판단 모델 길이에 맞춰 구간으로 나누고, 반복되는 구간은 기억한다 (#71)
+            local = self.decision.judge_local([m["content"] for m in masked.messages if m["content"]], questions)
             trace.judges.append(local)
             if not self.masker.available:
                 decision = decide_without_masking(masked.has_pii, local, msgs)

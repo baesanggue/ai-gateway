@@ -232,6 +232,26 @@ def test_basic_sends_suspected_address_but_keeps_it_out_of_the_log(tmp_path, mon
     assert "가상로".encode() not in stored
 
 
+def test_strict_does_not_block_a_chatbot_with_a_long_system_prompt(tmp_path):
+    """실제 챗봇은 system 지시문이 길다. 예전에는 대화 전체가 판단 모델 길이(약 1,275자, #39)를 넘어 엄격 수준이 모두 막았다.
+    이제 구간으로 나눠 묻고, 다음 요청에서는 반복되는 지시문 구간을 다시 묻지 않는다 (#71)."""
+    up = FakeUpstream()
+    system = {"role": "system", "content": "너는 쇼핑몰 상담원이다. 친절하게 짧게 답한다. 환불 규정은 7일 이내다. " * 40}
+    with gateway(tmp_path, up, level="strict") as (client, log):
+        r1 = ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        first = len(up.bodies("/v1/systemone"))
+        r2 = ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"},
+                 {"role": "assistant", "content": "네, 공지입니다."}, {"role": "user", "content": "조금 더 짧게"})
+        row1 = log.get(r1.headers["x-gateway-request-id"])
+        row2 = log.get(r2.headers["x-gateway-request-id"])
+    assert row1["route"] == "cheap" and row2["route"] == "cheap"
+    local1 = row1["judgments"]["local"]
+    assert local1["parts"] >= 2 and local1["error"] is None                   # 지시문 약 1,700자 → 두 구간 이상
+    assert all(len(b["state"]) <= 1000 for b in up.bodies("/v1/systemone"))
+    assert row2["judgments"]["local"]["cached_parts"] >= 1
+    assert len(up.bodies("/v1/systemone")) - first < local1["parts"]          # 지시문 구간은 다시 묻지 않았다
+
+
 def test_without_masker_local_judge_is_asked_about_pii_regardless_of_config(tmp_path):
     """가명화 부품이 없으면(M1) 설정에 has_pii가 없어도 묻는다. 묻지 않으면 이름이 든 요청이 그대로 나간다."""
     up = FakeUpstream()

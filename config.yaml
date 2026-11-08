@@ -24,6 +24,12 @@ decision:
   # has_pii(남은 개인정보)는 기본으로 묻지 않는다: 다 가려진 문장의 95%를 "남았다"고 봐서 차단 근거로 못 쓴다(#46).
   # 사전에 없는 이름은 이름 인식 모델이 가리고, 남은 주소는 그 모델이 본다 (masking.ner, D23)
   local_questions: [is_confidential]
+  # 로컬 판단은 판단 모델이 읽을 수 있는 길이(약 1,024토큰, 한국어 1,275자, #39)에 맞춰 구간으로 나눠 묻는다 (#71)
+  # system 지시문·이전 대화처럼 반복되는 구간은 결과를 기억해 다시 묻지 않는다 (같은 글 → 같은 답, 11/08 확인)
+  local_chunk_chars: 1000
+  local_chunk_overlap: 100
+  local_max_new_chunks: 8      # 한 요청에서 새로 물을 구간 상한. 넘으면 판단 실패 → 엄격 차단·기본 진행 (D19)
+  local_cache_size: 2048
 
   # 클라우드 (OpenAI Decisions) — 가명화된 문장만 보낸다. 키는 .env의 OPENAI_API_KEY
   cloud:

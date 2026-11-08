@@ -52,6 +52,11 @@ class DecisionConfig(BaseModel):
     model: str
     timeout_seconds: float = 10
     local_questions: list[str]
+    # 로컬 판단을 나눠 읽는 구간 (#71, D19 보완). gliclass:v4-edge는 약 1,024토큰(한국어 1,275자)까지 읽는다 (#39)
+    local_chunk_chars: int = 1000
+    local_chunk_overlap: int = 100
+    local_max_new_chunks: int = 8      # 한 요청에서 새로 판단할 구간 상한. 넘으면 판단 실패로 처리한다 (D19)
+    local_cache_size: int = 2048       # 기억할 구간 판단 수 (같은 글 → 같은 답, 11/08 확인)
     # 클라우드 판단 (OpenAI Decisions, 가명화된 문장만)
     cloud: CloudDecisionConfig
     # 질문별 '예' 기준값
