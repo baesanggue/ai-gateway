@@ -95,8 +95,12 @@ class Gateway:
             questions = cfg.decision.local_questions
             if not self.masker.available and "has_pii" not in questions:
                 questions = [*questions, "has_pii"]      # 가명화 부품이 없으면(M1) 개인정보가 있는지 물어 막는다
-            local = self.decision.judge_local("\n".join(m["content"] for m in masked.messages if m["content"]),
-                                              questions)
+            # 메시지마다 넘긴다: 판단 서비스가 판단 모델 길이에 맞춰 구간으로 나누고, 반복되는 구간은 기억한다 (#71)
+            # system·developer 지시문은 기본으로 넣지 않는다(local_check_system_messages, D19 보완). 가명화와
+            # 위험 판단(이전 대화·지시문 포함)은 그대로 전부 거친다
+            skip = () if cfg.decision.local_check_system_messages else ("system", "developer")
+            local = self.decision.judge_local(
+                [m["content"] for m in masked.messages if m["content"] and m["role"] not in skip], questions)
             trace.judges.append(local)
             if not self.masker.available:
                 decision = decide_without_masking(masked.has_pii, local, msgs)

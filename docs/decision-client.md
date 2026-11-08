@@ -14,7 +14,9 @@
 ## 흐름 (D12)
 
 ```
-judge_local(가명화문)                  → 로컬 엔진: is_confidential (엄격 수준 차단 확인)
+judge_local(메시지들)                  → 로컬 엔진: is_confidential (엄격 수준 차단 확인)
+   판단 모델 길이(약 1,024토큰)에 맞춰 구간으로 나눠 묻고, 같은 구간은 기억한다 (#71).
+   system·developer 지시문은 기본으로 넣지 않는다 (local_check_system_messages, D19 보완)
    has_pii는 기본으로 묻지 않는다. 남은 개인정보는 이름 인식 모델이 본다 (D23).
    가명화 부품이 없을 때(M1 임시 규칙)만 파이프라인이 has_pii를 더해 묻는다
 judge_cloud(가명화문, has_masked_pii)  → 클라우드 엔진: needs_raw_value*, is_risky, difficulty, intent

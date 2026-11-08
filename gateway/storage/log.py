@@ -82,6 +82,7 @@ def judge_summary(result: JudgeResult) -> dict[str, Any]:
     """판단 결과를 로그용 dict로: 질문별 값·신뢰도·확률·거부 여부, 엔진 오류, 지연."""
     return {"engine": result.engine, "model": result.model, "latency_ms": round(result.latency_ms, 1),
             "input_tokens": result.input_tokens, "error": result.error, "cached": result.cached,
+            "parts": result.parts, "cached_parts": result.cached_parts,      # 로컬 판단을 나눈 구간 (#71)
             "judgments": {q: {"value": j.value, "confidence": j.confidence, "refused": j.refused, "probs": j.probs}
                           for q, j in result.judgments.items()}}
 
