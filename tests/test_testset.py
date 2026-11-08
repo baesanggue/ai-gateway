@@ -13,7 +13,8 @@ ROUTES = {"template", "cheap", "premium", "block"}
 PII_TYPES = {"name", "phone", "email", "rrn", "card", "account", "address"}
 
 # 업종별 기대 구성: (행 수, 원본 필요, 기밀·위험·무관)
-DOMAINS = {"T": (100, 9, 20), "M": (30, 3, 6), "F": (30, 3, 6), "G": (30, 3, 6)}
+# (11/08, #67) T075를 원본 필요로 되돌려 쇼핑몰도 원본 필요 10% (10/28 검토에서 9가 됐었다)
+DOMAINS = {"T": (100, 10, 20), "M": (30, 3, 6), "F": (30, 3, 6), "G": (30, 3, 6)}
 
 
 def load_rows():

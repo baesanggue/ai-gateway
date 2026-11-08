@@ -217,6 +217,11 @@ def cost_lines(basic: list[dict]) -> list[str]:
 def summary(out: Path) -> None:
     with (out / "requests.csv").open(encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
+    # 기대 경로는 지금 testset 라벨로 다시 계산한다. 측정 뒤에 라벨을 고친 경우(11/08 T075, #67)에도 다시 부르지 않고 집계한다
+    labels = {r["id"]: r for r in rm.load_rows()}
+    for r in rows:
+        row = labels[r["id"]]
+        r["expected"] = row["expected_route"] if r["level"] == "basic" else expected_strict(row)
     meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
     basic = [r for r in rows if r["level"] == "basic"]
     llm_cost = sum(float(r["cost_usd"]) for r in basic)
@@ -228,7 +233,8 @@ def summary(out: Path) -> None:
     routes = Counter(r["route"] for r in basic)
     lines = ["# 게이트웨이 전체 벤치마크 (#59)", "",
              f"테스트셋 190행을 실제 게이트웨이로 처리했다 ({meta['date']}). 업종별 프리셋(T 쇼핑몰, M 의료, F·G 없음), "
-             "시연용 사전 + 이름 인식 모델. 기대 경로는 기본 수준 라벨, 엄격 수준은 기밀이면 차단.", "",
+             "시연용 사전 + 이름 인식 모델. 기대 경로는 기본 수준 라벨, 엄격 수준은 기밀이면 차단. "
+             "라벨은 집계할 때의 testset 기준이다(11/08 T075 원본 필요로 변경, #67).", "",
              "## 한눈에", "",
              "| 지표 | 값 |", "|---|---|",
              f"| 경로 정확도 (기본) | {rm.rate(sum(r['route'] == r['expected'] for r in basic), len(basic))} |",
