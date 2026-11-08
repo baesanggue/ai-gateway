@@ -1,5 +1,5 @@
 {
- "기본(지시문 제외): 평범한 지시문": {
+ "등록한 지시문": {
   "system_chars": 1730,
   "turns": [
    {
@@ -11,7 +11,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 71.0,
+    "total_ms": 79.8,
     "p_confidential": null,
     "error": null
    },
@@ -23,8 +23,8 @@
     ],
     "parts": 1,
     "cached_parts": 0,
-    "local_ms": 3422.2,
-    "total_ms": 3491.3,
+    "local_ms": 3471.9,
+    "total_ms": 3548.5,
     "p_confidential": {
      "yes": 0.0295
     },
@@ -39,7 +39,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 65.2,
+    "total_ms": 69.2,
     "p_confidential": null,
     "error": null
    }
@@ -52,7 +52,7 @@
    }
   ]
  },
- "지시문 포함: 평범한 지시문": {
+ "등록하지 않은 지시문": {
   "system_chars": 1730,
   "turns": [
    {
@@ -64,7 +64,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 71.5,
+    "total_ms": 71.2,
     "p_confidential": null,
     "error": null
    },
@@ -76,8 +76,8 @@
     ],
     "parts": 2,
     "cached_parts": 0,
-    "local_ms": 4104.7,
-    "total_ms": 4172.6,
+    "local_ms": 4050.0,
+    "total_ms": 4118.2,
     "p_confidential": {
      "yes": 0.4704
     },
@@ -92,7 +92,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 85.9,
+    "total_ms": 87.3,
     "p_confidential": null,
     "error": null
    }
@@ -115,7 +115,7 @@
    }
   ]
  },
- "기본(지시문 제외): 지시문에 기밀": {
+ "등록한 지시문에 기밀을 덧붙임 (우회 시도)": {
   "system_chars": 1799,
   "turns": [
    {
@@ -127,60 +127,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 69.2,
-    "p_confidential": null,
-    "error": null
-   },
-   {
-    "user": "제주도인데 더 걸리나요?",
-    "route": "cheap",
-    "reasons": [
-     "simple"
-    ],
-    "parts": 1,
-    "cached_parts": 0,
-    "local_ms": 270.6,
-    "total_ms": 348.6,
-    "p_confidential": {
-     "yes": 0.0295
-    },
-    "error": null
-   },
-   {
-    "user": "그럼 교환은 며칠 안에 해야 해요?",
-    "route": "template",
-    "reasons": [
-     "faq"
-    ],
-    "parts": null,
-    "cached_parts": null,
-    "local_ms": null,
-    "total_ms": 80.3,
-    "p_confidential": null,
-    "error": null
-   }
-  ],
-  "parts": [
-   {
-    "chars": 156,
-    "p_confidential": null,
-    "head": "주문한 거 배송 언제 와요? 주문 후 영업일 기준 1~3일 안에 출발하고"
-   }
-  ]
- },
- "지시문 포함: 지시문에 기밀": {
-  "system_chars": 1799,
-  "turns": [
-   {
-    "user": "주문한 거 배송 언제 와요?",
-    "route": "template",
-    "reasons": [
-     "faq"
-    ],
-    "parts": null,
-    "cached_parts": null,
-    "local_ms": null,
-    "total_ms": 66.7,
+    "total_ms": 66.8,
     "p_confidential": null,
     "error": null
    },
@@ -192,8 +139,8 @@
     ],
     "parts": 3,
     "cached_parts": 0,
-    "local_ms": 4020.9,
-    "total_ms": 4100.6,
+    "local_ms": 4064.5,
+    "total_ms": 4146.8,
     "p_confidential": {
      "yes": 0.2188
     },
@@ -208,7 +155,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 78.6,
+    "total_ms": 76.2,
     "p_confidential": null,
     "error": null
    }
@@ -231,7 +178,7 @@
    }
   ]
  },
- "기본(지시문 제외): 사용자가 기밀 입력": {
+ "등록한 지시문 + 사용자가 기밀 입력": {
   "system_chars": 1730,
   "turns": [
    {
@@ -243,7 +190,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 64.9,
+    "total_ms": 70.1,
     "p_confidential": null,
     "error": null
    },
@@ -255,8 +202,8 @@
     ],
     "parts": 1,
     "cached_parts": 0,
-    "local_ms": 307.4,
-    "total_ms": 377.8,
+    "local_ms": 278.3,
+    "total_ms": 342.4,
     "p_confidential": {
      "yes": 0.3958
     },
@@ -271,7 +218,7 @@
     "parts": null,
     "cached_parts": null,
     "local_ms": null,
-    "total_ms": 83.7,
+    "total_ms": 84.1,
     "p_confidential": null,
     "error": null
    }

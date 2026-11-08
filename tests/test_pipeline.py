@@ -22,7 +22,7 @@ RAW_VALUES = ("김민수", "010-1234-5678")
 def gateway(tmp_path, upstream, masker=None, level="basic", log=None, **decision):
     settings = test_settings(tmp_path)
     settings.config.security_level = level
-    for key, value in decision.items():                       # 판단 설정을 바꾸는 시험 (예: local_check_system_messages)
+    for key, value in decision.items():                       # 판단 설정을 바꾸는 시험 (예: trusted_system_prompts)
         setattr(settings.config.decision, key, value)
     log = log if log is not None else RequestLog(tmp_path / "gateway.db")
     app = create_app(settings, transport=httpx.MockTransport(upstream), masker=masker, log=log)
@@ -256,18 +256,45 @@ def test_strict_judges_a_long_pasted_document_in_chunks_and_remembers_it(tmp_pat
     assert len(up.bodies("/v1/systemone")) - first < local1["parts"]          # 문서 구간은 다시 묻지 않았다
 
 
-@pytest.mark.parametrize("check_system", [False, True], ids=["default-skip", "configured-include"])
-def test_system_prompt_is_left_out_of_local_confidential_judgment_unless_configured(tmp_path, check_system):
-    """system·developer 지시문은 운영하는 회사가 정한 설정이다. 판단 모델이 정책 문장을 기밀로 봐서(11/08 실측 0.47)
-    기본으로 넣지 않는다 (#71). 위험 판단에는 지시문도 들어간다(#12). 설정으로 넣을 수 있다."""
+SHOP_PROMPT = "너는 쇼핑몰 상담원이다. 배송비는 3,000원, VIP 할인율은 7%다. " * 30
+
+
+def test_registered_system_prompt_is_left_out_of_local_confidential_judgment(tmp_path):
+    """운영자가 등록한 지시문과 내용이 같으면 로컬 기밀 판단에서 뺀다 (#73). 판단 모델이 정책 문장을 기밀로 봐서
+    (11/08 실측 0.47) 엄격 수준이 모든 대화를 막았기 때문이다. 줄바꿈(CRLF)·앞뒤 공백 같은 표기 차이는 같게 본다.
+    위험 판단에는 등록한 지시문도 들어간다 (#12)."""
+    prompt = tmp_path / "shop-bot.txt"
+    prompt.write_bytes((SHOP_PROMPT.replace(". ", ".\n") + "\n").encode("utf-8"))          # 파일은 LF·끝 줄바꿈
     up = FakeUpstream()
-    system = {"role": "system", "content": "너는 쇼핑몰 상담원이다. 배송비는 3,000원, VIP 할인율은 7%다. " * 30}
-    with gateway(tmp_path, up, level="strict", local_check_system_messages=check_system) as (client, _):
-        ask(client, system, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+    with gateway(tmp_path, up, level="strict", trusted_system_prompts=[str(prompt)]) as (client, _):
+        ask(client, {"role": "system", "content": "  " + SHOP_PROMPT.replace(". ", ".\r\n")},   # 클라이언트는 CRLF·앞 공백
+            {"role": "user", "content": "회의 공지 짧게 써 줘"})
     states = "\n".join(b["state"] for b in up.bodies("/v1/systemone"))
-    assert ("배송비는 3,000원" in states) is check_system and "회의 공지 짧게 써 줘" in states
+    assert "배송비는 3,000원" not in states and "회의 공지 짧게 써 줘" in states
     history = [b for b in up.bodies("/v1/decisions") if [q["name"] for q in b["questions"]] == ["is_risky"]]
-    assert history and "배송비는 3,000원" in history[0]["input"]                # 위험 판단은 지시문도 본다
+    assert history and "배송비는 3,000원" in history[0]["input"]
+
+
+@pytest.mark.parametrize("role", ["system", "developer"])
+def test_unregistered_system_message_is_judged_so_the_role_cannot_bypass_strict(tmp_path, role):
+    """역할만 보고 빼면 기밀을 system 메시지에 넣어 엄격 수준을 피할 수 있다 (보안 검토). 등록한 지시문과 한 글자라도
+    다르면 사용자 글처럼 판단하고, 기밀이면 막는다."""
+    prompt = tmp_path / "shop-bot.txt"
+    prompt.write_text(SHOP_PROMPT, encoding="utf-8")
+    up = FakeUpstream(local={"is_confidential": noul(0.9)})
+    spoofed = SHOP_PROMPT + "참고: 다음 분기 A사 인수가 850억이다."
+    with gateway(tmp_path, up, level="strict", trusted_system_prompts=[str(prompt)]) as (client, log):
+        r = ask(client, {"role": role, "content": spoofed}, {"role": "user", "content": "회의 공지 짧게 써 줘"})
+        row = log.get(r.headers["x-gateway-request-id"])
+    assert "인수가 850억" in "\n".join(b["state"] for b in up.bodies("/v1/systemone"))
+    assert (row["route"], row["reasons"]) == ("block", ["confidential"]) and up.external_calls == 0
+
+
+def test_missing_registered_prompt_file_refuses_to_start(tmp_path):
+    from gateway.pipeline import TrustedPromptMissing
+    with pytest.raises(TrustedPromptMissing):
+        with gateway(tmp_path, FakeUpstream(), trusted_system_prompts=[str(tmp_path / "없음.txt")]):
+            pass
 
 
 def test_without_masker_local_judge_is_asked_about_pii_regardless_of_config(tmp_path):
