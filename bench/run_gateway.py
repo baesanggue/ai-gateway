@@ -187,6 +187,33 @@ def accuracy_lines(rows: list[dict], level: str) -> list[str]:
     return out + [""]
 
 
+def cost_lines(basic: list[dict]) -> list[str]:
+    """경로별 비용과, 복잡한 요청 비율이 달라지면 절감률이 어떻게 되는지 (측정한 경로별 평균으로 계산한 가정)."""
+    out = ["## 비용: 경로별", "", "| 경로 | 행 | 게이트웨이 | 전부 고성능이었다면 | 절감 | 평균 출력 토큰 |", "|---|---|---|---|---|---|"]
+    avg = {}
+    for route in ROUTES:
+        rs = [r for r in basic if r["route"] == route]
+        cost = sum(float(r["cost_usd"]) for r in rs)
+        base = sum(float(r["baseline_cost_usd"]) for r in rs)
+        avg[route] = (cost / len(rs), base / len(rs)) if rs else (0.0, 0.0)
+        tokens = sum(int(r["completion_tokens"] or 0) for r in rs) / len(rs) if rs else 0
+        save = f"{1 - cost / base:.0%}" if base else ("— (D18: 차단은 절감액에 넣지 않음)" if route == "block" else "—")
+        out.append(f"| {route} | {len(rs)} | ${cost:.4f} | ${base:.4f} | {save} | {tokens:.0f} |")
+    simple = [r for r in basic if r["route"] in ("template", "cheap")]
+    s_cost = sum(float(r["cost_usd"]) for r in simple) / len(simple) if simple else 0.0
+    s_base = sum(float(r["baseline_cost_usd"]) for r in simple) / len(simple) if simple else 0.0
+    p_cost = avg["premium"][0]
+    out += ["", "복잡한 요청(고성능 경로) 비율에 따른 전체 절감률 — **가정**: 나머지는 모두 단순 요청(템플릿·저렴), "
+            "경로별 요청당 비용은 이번 측정의 평균, 차단 요청은 뺀다", "",
+            "| 복잡한 요청 비율 | 절감률 |", "|---|---|"]
+    for share in (0.1, 0.2, 0.3, round(len([r for r in basic if r["route"] == "premium"]) /
+                                       max(1, len([r for r in basic if r["route"] != "block"])), 2)):
+        gw = share * p_cost + (1 - share) * s_cost
+        base = share * p_cost + (1 - share) * s_base
+        out.append(f"| {share:.0%} | {1 - gw / base:.0%} |" if base else f"| {share:.0%} | — |")
+    return out + [""]
+
+
 def summary(out: Path) -> None:
     with (out / "requests.csv").open(encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
@@ -197,7 +224,7 @@ def summary(out: Path) -> None:
     baseline = sum(float(r["baseline_cost_usd"]) for r in basic)
     judged = [float(r["decision_latency_ms"]) for r in basic if float(r["decision_latency_ms"]) > 0]
     total = [float(r["total_latency_ms"]) for r in basic]
-    leaks = [r for r in rows if r["leaked"]]
+    leaks = sorted({(r["id"], r["leaked"]) for r in rows if r["leaked"]})      # 기본·엄격에서 같은 문장이면 한 번
     routes = Counter(r["route"] for r in basic)
     lines = ["# 게이트웨이 전체 벤치마크 (#59)", "",
              f"테스트셋 190행을 실제 게이트웨이로 처리했다 ({meta['date']}). 업종별 프리셋(T 쇼핑몰, M 의료, F·G 없음), "
@@ -211,9 +238,12 @@ def summary(out: Path) -> None:
              f"| 절감률 | {1 - (llm_cost + decision_cost) / baseline:.0%} |" if baseline else "| 절감률 | — |",
              f"| 판단 지연 (판단을 거친 {len(judged)}행) | 평균 {sum(judged) / len(judged):.0f}ms, p95 {_p95(judged):.0f}ms |" if judged else "",
              f"| 전체 지연 (LLM 포함) | 평균 {sum(total) / len(total):.0f}ms, p95 {_p95(total):.0f}ms |",
-             f"| 밖으로 나간 요청에 원본 값 | **{len(leaks)}행** |",
-             f"| 복원하지 못한 토큰 | {sum(int(r['unrestored']) for r in basic)}개 |",
+             f"| 밖으로 나간 요청에 원본 값 | **{len(leaks)}문장**"
+             + (": " + ", ".join(f"{i} `{v}`" for i, v in leaks) if leaks else "") + " |",
+             f"| 복원하지 못한 토큰 | {sum(int(r['unrestored']) for r in basic)}개"
+             + "".join(f" ({r['id']})" for r in basic if r["unrestored"] != "0") + " |",
              f"| 엄격 수준 재실행에서 캐시에 없던 요청 | {meta['strict_replay_misses']}건 |", "",
+             *cost_lines(basic),
              "## 경로", "", *accuracy_lines(rows, "basic"), *accuracy_lines(rows, "strict"),
              "## 실행 환경", "", *[f"- {k}: {v}" for k, v in meta["pc"].items()], ""]
     (out / "summary.md").write_text("\n".join(line for line in lines if line is not None), encoding="utf-8")

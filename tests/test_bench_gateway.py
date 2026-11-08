@@ -31,6 +31,19 @@ def test_raw_values_are_fake_names_and_regex_matches():
     assert "김민수" in values and "010-1234-5678" in values and "900101-1234567" in values
 
 
+def test_cost_by_route_and_mix_assumption():
+    """경로별 절감과, 복잡한 요청 비율에 따른 절감률(측정한 경로별 평균으로 계산). 차단은 절감액에 넣지 않는다 (D18)."""
+    def row(route, cost, base, tokens=0):
+        return {"route": route, "cost_usd": str(cost), "baseline_cost_usd": str(base), "completion_tokens": str(tokens)}
+    basic = [row("template", 0, 0.002), row("cheap", 0.001, 0.02, 100), row("premium", 0.01, 0.01, 1000),
+             row("block", 0, 0)]
+    text = "\n".join(rg.cost_lines(basic))
+    assert "| template | 1 | $0.0000 | $0.0020 | 100% |" in text
+    assert "| premium | 1 | $0.0100 | $0.0100 | 0% |" in text
+    # 복잡 10%: 게이트웨이 0.1×0.01 + 0.9×0.0005, 전부 고성능 0.1×0.01 + 0.9×0.011 → 절감 87%
+    assert "| 10% | 87% |" in text
+
+
 def test_strict_expectation_blocks_confidential_rows_only():
     assert rg.expected_strict({"is_confidential": "1", "expected_route": "premium"}) == "block"
     assert rg.expected_strict({"is_confidential": "0", "expected_route": "cheap"}) == "cheap"
