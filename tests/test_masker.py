@@ -288,6 +288,21 @@ def test_address_in_a_later_message_is_located_across_messages():
     assert r.suspected == ["주소"]
 
 
+def test_business_words_listed_in_the_preset_are_not_masked_as_names():
+    """이름 인식 모델이 "금식"을 이름으로 봐 [이름1]로 가렸고, 그 문장이 "원본 필요"로 막혔다 (#59 M007).
+    프리셋의 "이름이 아닌 낱말"은 가리지 않는다 (#65). 정확히 같은 낱말만이고, 진짜 이름은 그대로 가린다."""
+    ner = FakeNer(names=["금식", "양미래", "Mode"])
+    masker = RuleMasker(ENTRIES, ner=ner, not_names=["금식", "mode"])
+    r = masker.mask([{"role": "user", "content": "건강검진 전날 금식은 몇 시부터예요? Mode 설정도요. 양미래 환자"}])
+    assert r.messages[0]["content"] == "건강검진 전날 금식은 몇 시부터예요? Mode 설정도요. [이름1] 환자"
+
+
+def test_dictionary_value_is_masked_even_if_listed_as_not_a_name():
+    """목록은 이름 인식 모델에만 적용한다. 회사가 사전에 등록한 값은 그대로 가린다."""
+    masker = RuleMasker([Entry("고객", "모드")], ner=FakeNer(names=["모드"]), not_names=["모드"])
+    assert masker.mask([{"role": "user", "content": "모드 고객님께"}]).messages[0]["content"] == "[고객1] 고객님께"
+
+
 def test_without_model_masker_behaves_as_before():
     r = RuleMasker(ENTRIES).mask([{"role": "user", "content": "양미래 고객에게"}])
     assert r.messages[0]["content"] == "양미래 고객에게" and r.suspected == []

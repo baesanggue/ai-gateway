@@ -5,6 +5,8 @@
   어떤 값이 어디 들어갔는지 정확히 안다. 2,531문장 중 개인정보가 있는 446문장
 - 테스트셋 190행: 사람이 붙인 `pii_types` 라벨. 값은 모르므로 종류별 토큰·흔적으로 본다 (#46 run_masked.residual)
 
+업종마다 그 업종 프리셋(사전·회사별 식별번호·이름이 아닌 낱말): 쇼핑몰·사내 shop, 의료 medical, 금융·공공 없음 (11/09, #65)
+
 조건
 - before: 시연 사전만, 이름 인식 없음 (D23 이전)
 - default: 시연 사전 + 이름 인식 (지금 기본)
@@ -21,9 +23,11 @@ import csv
 import importlib.util
 import re
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "bench"))
 import run_masked as rm  # noqa: E402
@@ -41,6 +45,9 @@ KINDS = ("이름", "전화번호", "이메일", "주민번호", "계좌번호", 
 TYPE_TO_KIND = {"name": "이름", **rm.TYPE_KIND}                      # 테스트셋 라벨 → 종류
 NAME_TOKENS = {"고객", "직원", "이름"}                                # 이름을 가리는 토큰 종류 (사전·이름 인식)
 SIDE_KINDS = {"사내"}                                                 # 개인정보는 아니지만 회사가 가리라고 등록한 것
+# 업종마다 그 업종 프리셋 (11/09, #65): 사전·회사별 식별번호·"이름이 아닌 낱말"이 업종마다 다르다. 금융·공공은 프리셋이 없다
+PRESET_OF = {"shop": "shop", "office": "shop", "medical": "medical", "finance": None, "public": None}
+TESTSET_PRESET = {"T": "shop", "M": "medical", "F": None, "G": None}
 
 
 def _generator():
@@ -80,6 +87,18 @@ def status(text: str, kept: list[bool], value: str) -> str:
     return worst
 
 
+def preset_settings(preset: str | None):
+    """config.yaml에서 preset만 바꾼 설정. 키는 필요 없다."""
+    raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    raw["preset"] = preset
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        yaml.safe_dump(raw, f, allow_unicode=True)
+    try:
+        return load_settings(Path(f.name), env_file=ROOT / "없는.env")
+    finally:
+        Path(f.name).unlink()
+
+
 def masker_for(condition: str, names: list[str], settings, ner) -> RuleMasker:
     cfg = settings.config.masking
     entries = parse((ROOT / cfg.example_dictionary_path).read_text(encoding="utf-8-sig"))
@@ -87,14 +106,19 @@ def masker_for(condition: str, names: list[str], settings, ner) -> RuleMasker:
         have = {e.value for e in entries}
         entries += [Entry("고객", n) for n in names if n not in have]
     custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]
-    return RuleMasker(entries, "custom", custom, None if condition == "before" else ner)
+    if condition == "before":                                          # D23 이전: 이름 인식 모델 없음
+        return RuleMasker(entries, "custom", custom)
+    return RuleMasker(entries, "custom", custom, ner, cfg.not_names)
+
+
+CUSTOM_KINDS: set[str] = set()                     # 프리셋들의 회사별 식별번호 종류 (main에서 채운다)
 
 
 def token_kind(token: str) -> str:
     return rm.TOKEN_KIND.fullmatch(token).group(1)
 
 
-def run_generated(settings, ner, out: Path) -> None:
+def run_generated(presets: dict, ner, out: Path) -> None:
     gen = _generator()
     with ITEMS.open(encoding="utf-8-sig", newline="") as f:
         items = [i for i in csv.DictReader(f) if not i["drop"]]
@@ -109,10 +133,10 @@ def run_generated(settings, ner, out: Path) -> None:
     names = sorted({v for tv in truths.values() for k, v in tv if k == "이름"})
     records = []
     for cond in CONDITIONS:
-        masker = masker_for(cond, names, settings, ner)
+        maskers = {k: masker_for(cond, names, s, ner) for k, s in presets.items()}
         for n, tv in truths.items():
             text = normalize_text(items[n]["original"])
-            m = masker.mask([{"role": "user", "content": text}])
+            m = maskers[PRESET_OF[items[n]["industry"]]].mask([{"role": "user", "content": text}])
             masked = m.messages[0]["content"]
             kept = _kept_chars(masked, m.mapping)
             aligned = len(kept) == len(text)
@@ -124,7 +148,7 @@ def run_generated(settings, ner, out: Path) -> None:
             for token, value in m.mapping.items():
                 hit = any(value in v or v in value for _, v in pii)
                 tk = token_kind(token)
-                group = "side" if tk in SIDE_KINDS or tk in {p.kind for p in settings.config.masking.custom_patterns} \
+                group = "side" if tk in SIDE_KINDS or tk in CUSTOM_KINDS \
                     else "correct" if hit else "wrong"
                 records.append({"condition": cond, "row": n, "category": items[n]["category"], "type": "token",
                                 "kind": tk, "value": value, "status": group, "token_kind": tk, "masked": masked})
@@ -132,12 +156,12 @@ def run_generated(settings, ner, out: Path) -> None:
     rm._write(out / "generated.csv", records)
 
 
-def run_testset(settings, ner, out: Path) -> None:
+def run_testset(presets: dict, ner, out: Path) -> None:
     records = []
     for cond in CONDITIONS:
-        masker = masker_for(cond, list(NAMES), settings, ner)
+        maskers = {k: masker_for(cond, list(NAMES), s, ner) for k, s in presets.items()}
         for row in rm.load_rows():
-            m = masker.mask([{"role": "user", "content": row["text"]}])
+            m = maskers[TESTSET_PRESET[row["id"][0]]].mask([{"role": "user", "content": row["text"]}])
             masked = m.messages[0]["content"]
             left, other = rm.residual(row, masked, m.mapping)
             labeled = [t for t in row["pii_types"].split("|") if t]
@@ -149,7 +173,7 @@ def run_testset(settings, ner, out: Path) -> None:
             for token, value in m.mapping.items():
                 tk = token_kind(token)
                 as_kind = "이름" if tk in NAME_TOKENS else tk
-                group = "side" if tk in SIDE_KINDS or tk in {p.kind for p in settings.config.masking.custom_patterns} \
+                group = "side" if tk in SIDE_KINDS or tk in CUSTOM_KINDS \
                     else "correct" if as_kind in kinds or (as_kind == "이름" and value in NAMES) else "wrong"
                 records.append({"condition": cond, "id": row["id"], "type": "token", "kind": tk, "status": group,
                                 "value": value, "masked": masked})
@@ -213,7 +237,8 @@ def summary(out: Path) -> None:
     gen_rows, test_rows = _read(out / "generated.csv"), _read(out / "testset.csv")
     lines = ["# 가명화 성능 (#58) — 개인정보 종류별 재현율·정밀도", "",
              "조건: `before` 시연 사전만·이름 인식 없음(D23 이전) / `default` 시연 사전 + 이름 인식(지금 기본) / "
-             "`all_names` 이름 전부 사전 등록 + 이름 인식. 회사별 식별번호는 쇼핑몰 프리셋.", "",
+             "`all_names` 이름 전부 사전 등록 + 이름 인식. 업종마다 그 업종 프리셋(쇼핑몰·사내 shop, 의료 medical, 금융·공공 없음): "
+             "사전·회사별 식별번호·이름이 아닌 낱말(#65).", "",
              "## 생성 데이터 (#21, 값과 위치를 코드가 안다)", "",
              *recall_table(gen_rows, "생성 데이터"), *precision_table(gen_rows, "생성 데이터"),
              *missed_list(gen_rows, "default", "row"),
@@ -231,10 +256,11 @@ def main() -> None:
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     if not args.summary_only:
-        settings = load_settings()
+        presets = {k: preset_settings(k) for k in ("shop", "medical", None)}
+        CUSTOM_KINDS.update(p.kind for s in presets.values() for p in s.config.masking.custom_patterns)
         ner = load_ner(NerConfig())
-        run_generated(settings, ner, args.out)
-        run_testset(settings, ner, args.out)
+        run_generated(presets, ner, args.out)
+        run_testset(presets, ner, args.out)
     summary(args.out)
 
 

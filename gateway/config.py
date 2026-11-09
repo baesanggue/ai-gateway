@@ -144,6 +144,9 @@ class MaskingConfig(BaseModel):
     example_dictionary_path: str = "config/presets/shop.dictionary.example.txt"
     custom_patterns: list[CustomPattern] = []
     ner: NerConfig = NerConfig()
+    # 이름 인식 모델이 사람 이름으로 잘못 보는 업무 낱말 (#65, 업종 프리셋이 정한다). 정확히 같은 낱말만 가리지 않는다.
+    # 사람 이름과 같은 낱말을 넣으면 그 이름은 이름 인식 모델로 가려지지 않는다 (사전에 등록한 이름은 그대로 가린다)
+    not_names: list[str] = []
 
 
 class StorageConfig(BaseModel):
