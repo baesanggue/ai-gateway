@@ -1,0 +1,118 @@
+"""관리·시연 화면에 공통인 것: 색과 글꼴(CSS), 설정, 게이트웨이 주소, 왼쪽 메뉴의 상태 표시 (#76).
+
+디자인은 11/09 사용자 의견을 따른다: 예전 화면 예시(docs/design/ui-demo.html)의 모양(회색 메뉴, 이름표가 붙은 카드,
+색으로 나눈 칸), 이모지 없음, 메뉴는 왼쪽에서 열고 닫는다, 창은 1200×800 안팎에 맞춘다.
+"""
+import sys
+from pathlib import Path
+
+import httpx
+import streamlit as st
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from gateway.config import load_settings  # noqa: E402
+
+LEVEL_KO = {"basic": "기본", "strict": "엄격", "local": "완전 로컬"}
+PRESET_KO = {"shop": "쇼핑몰", "medical": "병원", "school": "학교", None: "없음"}
+
+CSS = """
+<style>
+:root {
+  --gw-mono: "Cascadia Mono", Consolas, "D2Coding", monospace;
+  --gw-line: #e5e7eb; --gw-sub: #6b7280; --gw-soft: #fafafa;
+}
+/* 본문 글꼴만 바꾼다. 아이콘(Material Symbols) 글꼴까지 덮으면 메뉴 아이콘이 글자로 나온다 */
+.stMarkdown, .stMarkdown p, .stCaption, .gw-term, .gw-panel, .gw-step, .gw-metric, .gw-status { font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+.gw-term, .gw-metric .v { font-family: var(--gw-mono) !important; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-top: 1.2rem; padding-bottom: 1rem; max-width: 100%; }
+h1.gw-title { font-size: 1.35rem; margin: 0 0 0.1rem 0; padding: 0; }
+.gw-note { font-size: 0.8rem; color: var(--gw-sub); margin-bottom: 0.6rem; }
+.gw-label { font-size: 0.78rem; color: var(--gw-sub); font-weight: 600; margin: 0.2rem 0 0.35rem 0; }
+
+/* 숫자 카드 */
+.gw-metrics { display: flex; gap: 10px; margin: 0.3rem 0 0.8rem 0; }
+.gw-metric { flex: 1; border: 1px solid var(--gw-line); border-radius: 10px; padding: 6px 14px; background: #fff; }
+.gw-metric .k { font-size: 0.75rem; color: var(--gw-sub); }
+.gw-metric .v { font-size: 1.2rem; font-weight: 700; margin-top: 2px; font-family: var(--gw-mono); }
+.gw-metric .d { font-size: 0.72rem; color: var(--gw-sub); }
+.gw-metric.save { background: #ecfdf5; border-color: #a7f3d0; }
+.gw-metric.save .v { color: #047857; }
+
+/* 터미널(챗봇) */
+.gw-term { background: #1e1f24; color: #e5e7eb; font-family: var(--gw-mono); font-size: 0.82rem;
+  border-radius: 8px; padding: 10px 12px; height: 250px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+.gw-term .u { color: #93c5fd; }
+.gw-term .b { color: #e5e7eb; white-space: pre-wrap; margin: 2px 0 10px 14px; }
+.gw-term .blk { color: #fca5a5; }
+.gw-term .meta { color: #6b7280; }
+.gw-term .empty { color: #6b7280; }
+div[data-testid="stForm"] { border: none; padding: 0; }
+div[data-testid="InputInstructions"] { display: none; }
+div[data-testid="stForm"] input { font-family: var(--gw-mono); background: #1e1f24; color: #e5e7eb; }
+
+/* 처리 과정 */
+.gw-step { border: 1px solid var(--gw-line); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; background: var(--gw-soft); }
+.gw-step .h { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; }
+.gw-step .s { font-size: 0.82rem; margin-top: 2px; }
+.gw-step.skipped { opacity: 0.55; }
+.gw-step.blocked { border-color: #fecaca; background: #fef2f2; }
+.gw-chip { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; }
+.gw-chip.done { background: #dcfce7; color: #166534; }
+.gw-chip.skipped { background: #f3f4f6; color: #6b7280; }
+.gw-chip.blocked { background: #fee2e2; color: #991b1b; }
+
+/* 나간 글 / 받은 답변 */
+.gw-panel { border-radius: 10px; padding: 8px 14px; line-height: 1.6; font-size: 0.85rem; min-height: 70px; max-height: 150px; overflow-y: auto; }
+.gw-panel h4 { margin: 0 0 6px 0; font-size: 0.82rem; }
+.gw-panel.out { background: #fff7ed; border: 1px solid #fed7aa; }
+.gw-panel.in { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.gw-panel .none { color: var(--gw-sub); }
+.gw-tok { background: #fde68a; padding: 0 4px; border-radius: 4px; font-weight: 700; }
+
+/* 왼쪽 메뉴의 상태 */
+.gw-status { font-size: 0.8rem; line-height: 1.9; }
+.gw-status .ok { color: #16a34a; } .gw-status .bad { color: #dc2626; }
+</style>
+"""
+
+
+@st.cache_resource
+def settings():
+    return load_settings()
+
+
+def gateway_url(s) -> str:
+    g = s.config.gateway
+    return f"http://{g.host}:{g.port}"
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def health(url: str) -> dict | None:
+    """게이트웨이 /healthz. 응답이 없으면 None (5초마다 다시 본다)."""
+    try:
+        r = httpx.get(f"{url}/healthz", timeout=2)
+        return r.json() if r.status_code == 200 else None
+    except httpx.HTTPError:
+        return None
+
+
+def page_header(title: str, note: str) -> None:
+    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown(f"<h1 class='gw-title'>{title}</h1><div class='gw-note'>{note}</div>", unsafe_allow_html=True)
+
+
+def sidebar_status(s) -> None:
+    """왼쪽 메뉴 아래쪽: 게이트웨이가 켜져 있는지, 보안 수준, 업종, 사전."""
+    h = health(gateway_url(s))
+    dot = "<span class='ok'>●</span> 연결됨" if h else "<span class='bad'>●</span> 꺼져 있음"
+    dictionary = {"example": "시연용", "custom": "회사 사전"}.get((h or {}).get("dictionary"), "-")
+    with st.sidebar:
+        st.markdown("<div class='gw-label'>상태</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='gw-status'>게이트웨이 &nbsp;{dot}<br>"
+            f"보안 수준 &nbsp;<b>{LEVEL_KO.get(s.config.security_level)}</b><br>"
+            f"업종 &nbsp;<b>{PRESET_KO.get(s.config.preset, s.config.preset)}</b><br>"
+            f"사용자 사전 &nbsp;<b>{dictionary}</b></div>", unsafe_allow_html=True)
+        st.caption("설정은 config.yaml에서 바꾸고 다시 시작합니다.")
