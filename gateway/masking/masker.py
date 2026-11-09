@@ -133,9 +133,12 @@ class RuleMasker:
     available = True
 
     def __init__(self, entries: list[Entry], dictionary_source: str = "custom",
-                 custom_patterns: list[tuple[str, re.Pattern[str]]] = (), ner: NerModel | None = None):
+                 custom_patterns: list[tuple[str, re.Pattern[str]]] = (), ner: NerModel | None = None,
+                 not_names: list[str] = ()):
         self.dictionary_source = dictionary_source     # "custom"(회사 사전) | "example"(시연용 사전 복사본) → /healthz
         self.ner = ner                                 # 이름 인식 모델. 게이트웨이는 늘 있다(없으면 시작하지 않음, D23)
+        # 이름 인식 모델이 이름으로 잘못 보는 업무 낱말 (#65, 프리셋). 정확히 같으면 가리지 않는다. 사전 값은 그대로 가린다
+        self.not_names = {normalize_text(w).casefold() for w in not_names}
         # 회사별 식별번호 (#38, 업종 프리셋): (토큰 종류, 정규식). 기본 정규식보다 먼저 본다 (더 구체적이다)
         self.custom_patterns = list(custom_patterns)
         # 사전 값 전체를 정규식 하나로: 긴 값부터(같은 위치에서 "김민수진"이 "김민수"보다 먼저), 대소문자 무시
@@ -153,7 +156,7 @@ class RuleMasker:
         entries, _, is_example = load_dictionary(cfg)    # 사전이 없으면 DictionaryMissing (시작하지 않는다, D21)
         custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]   # 설정에서 이미 검증했다
         ner = load_ner(cfg.ner)                          # 모델 파일이 없거나 해시가 다르면 NerModelError (D23)
-        return cls(entries, "example" if is_example else "custom", custom, ner)
+        return cls(entries, "example" if is_example else "custom", custom, ner, cfg.not_names)
 
     @property
     def ner_source(self) -> str | None:
@@ -237,7 +240,8 @@ class RuleMasker:
                 spans[-1] = Span("NAME", p.start, s.end, joined[p.start:s.end], p.score)
             else:
                 spans.append(s)
-        names = [p for s in spans if s.label == "NAME" for p in NAME_PIECE.findall(s.text) if len(p) >= 2]
+        names = [p for s in spans if s.label == "NAME" for p in NAME_PIECE.findall(s.text)
+                 if len(p) >= 2 and p.casefold() not in self.not_names]
         addresses = [s for s in spans if s.label == "ADDRESS" and sum(c.isalnum() for c in s.text) >= 2]
         return sorted(dict.fromkeys(names), key=len, reverse=True), addresses
 

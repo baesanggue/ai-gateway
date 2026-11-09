@@ -37,6 +37,15 @@ def test_one_line_switches_faq_and_identifier(tmp_path, preset, question, faq_id
     assert [p.kind for p in cfg.masking.custom_patterns] == [kind]
 
 
+def test_medical_preset_keeps_clinic_words_unmasked_through_from_config(tmp_path, monkeypatch):
+    """의료 프리셋의 "이름이 아닌 낱말"이 설정 → 가명화 부품까지 이어진다 (#65, #59 M007)."""
+    from tests.fakes import FakeNer
+    monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer(names=["금식", "양미래"]))
+    masker = RuleMasker.from_config(settings_for(tmp_path, "medical").config.masking)
+    out = masker.mask([{"role": "user", "content": "건강검진 전날 금식은 몇 시부터 해야 하나요? 양미래 환자"}])
+    assert out.messages[0]["content"] == "건강검진 전날 금식은 몇 시부터 해야 하나요? [이름1] 환자"
+
+
 def test_default_config_is_the_shop_preset():
     cfg = load_settings(ROOT / "config.yaml", env_file=ROOT / "없는.env").config
     assert cfg.preset == "shop" and len(cfg.faq.entries) == 5
