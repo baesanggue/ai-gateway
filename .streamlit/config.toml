@@ -12,3 +12,11 @@ headless = true
 address = "127.0.0.1"
 enableCORS = true
 enableXsrfProtection = true
+
+[theme]
+# 프로그램 화면 색 (11/09): Streamlit 기본 빨강 대신 차분한 파랑. 메뉴·버튼·선택·입력 강조에 쓰인다
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
