@@ -1,0 +1,22 @@
+# Streamlit 설정 (시연·관리 화면, #76). 이 PC에서만 쓰는 화면이라 사용 통계를 보내지 않고, 배포(Deploy) 버튼을 숨긴다
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+# 이 PC에서만 연다 (D20과 같은 원칙). 기본값은 모든 주소라 같은 네트워크의 다른 PC가 시연 화면으로
+# 게이트웨이를 불러 API 비용을 쓰거나 요청 로그를 볼 수 있다 (보안 검토)
+address = "127.0.0.1"
+enableCORS = true
+enableXsrfProtection = true
+
+[theme]
+# 프로그램 화면 색 (11/09): Streamlit 기본 빨강 대신 차분한 파랑. 메뉴·버튼·선택·입력 강조에 쓰인다
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
