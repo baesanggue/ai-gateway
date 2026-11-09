@@ -1,0 +1,9 @@
+# Streamlit 설정 (시연·관리 화면, #76). 이 PC에서만 쓰는 화면이라 사용 통계를 보내지 않고, 배포(Deploy) 버튼을 숨긴다
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
