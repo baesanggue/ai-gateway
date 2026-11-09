@@ -7,3 +7,8 @@ gatherUsageStats = false
 
 [server]
 headless = true
+# 이 PC에서만 연다 (D20과 같은 원칙). 기본값은 모든 주소라 같은 네트워크의 다른 PC가 시연 화면으로
+# 게이트웨이를 불러 API 비용을 쓰거나 요청 로그를 볼 수 있다 (보안 검토)
+address = "127.0.0.1"
+enableCORS = true
+enableXsrfProtection = true

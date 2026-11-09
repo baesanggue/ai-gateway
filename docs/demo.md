@@ -19,4 +19,4 @@ uv run streamlit run admin/app.py                              # 시연 화면 �
 - 챗봇은 OpenAI SDK로 게이트웨이를 부른다(`base_url`만 게이트웨이). 오른쪽 내용은 응답 헤더의 요청 ID로 요청 로그를 읽어 만든다(`admin/flow.py`). 로그에는 가명화된 문장만 있고, 원문은 화면 세션에만 있다
 - 메시지는 하나씩 보낸다. 앞 대화까지 보내면 "가리기"가 앞 요청의 개인정보까지 세어 시연에서 헷갈린다
 - 등록한 시연용 지시문(`decision.trusted_system_prompts`, #73)이 있으면 system 메시지로 함께 보낸다
-- Streamlit 설정(`.streamlit/config.toml`): 사용 통계를 보내지 않고, 배포 버튼을 숨긴다
+- Streamlit 설정(`.streamlit/config.toml`): **이 PC에서만 연다**(`127.0.0.1`, D20과 같은 원칙), 사용 통계를 보내지 않고, 배포 버튼을 숨긴다
