@@ -53,15 +53,11 @@ def authorize(request: Request) -> JSONResponse | None:
     keys = request.app.state.settings.secrets.gateway_api_keys
     valid = [k.strip() for k in (keys.get_secret_value() if keys else "").split(",") if k.strip()]
     if not valid:
-        if not _is_local(request.client.host if request.client else ""):
+        problem = local_problem(request)
+        if problem == "remote":
             return openai_error(401, "게이트웨이 키가 설정되지 않아 같은 PC에서 온 요청만 받습니다. "
                                      "외부에서 쓰려면 .env에 GATEWAY_API_KEYS를 설정하세요.", code="invalid_api_key")
-        # 같은 PC의 브라우저가 악성 웹페이지 때문에 보내는 요청은 막는다 (#12 보안 검토)
-        # - DNS 리바인딩: 접속은 127.0.0.1이지만 Host 헤더에 공격자 도메인이 남는다
-        # - 교차 사이트 요청: 브라우저는 Origin 헤더를 붙인다. SDK 같은 프로그램은 붙이지 않는다
-        origin = request.headers.get("origin")
-        if _host_name(request.headers.get("host", "")) not in LOCAL_HOST_NAMES or (
-                origin is not None and urlsplit(origin).hostname not in LOCAL_ORIGIN_NAMES):
+        if problem == "browser":
             return openai_error(403, "같은 PC의 프로그램에서 온 요청만 받습니다. 웹페이지에서 보낸 요청은 처리하지 않습니다.",
                                 code="forbidden_origin")
         return None
@@ -75,6 +71,22 @@ def authorize(request: Request) -> JSONResponse | None:
 
 LOCAL_HOST_NAMES = {"127.0.0.1", "localhost", "[::1]", "testserver"}   # Host 헤더(포트 제외). testserver는 TestClient
 LOCAL_ORIGIN_NAMES = {"127.0.0.1", "localhost", "::1"}
+
+
+def local_problem(request: Request) -> str | None:
+    """같은 PC의 프로그램이 보낸 요청이면 None. 아니면 "remote"(다른 PC) | "browser"(웹페이지가 보냄).
+
+    같은 PC의 브라우저가 악성 웹페이지 때문에 보내는 요청도 막는다 (#12 보안 검토)
+    - DNS 리바인딩: 접속은 127.0.0.1이지만 Host 헤더에 공격자 도메인이 남는다
+    - 교차 사이트 요청: 브라우저는 Origin 헤더를 붙인다. SDK 같은 프로그램은 붙이지 않는다
+    """
+    if not _is_local(request.client.host if request.client else ""):
+        return "remote"
+    origin = request.headers.get("origin")
+    if _host_name(request.headers.get("host", "")) not in LOCAL_HOST_NAMES or (
+            origin is not None and urlsplit(origin).hostname not in LOCAL_ORIGIN_NAMES):
+        return "browser"
+    return None
 
 
 def _host_name(host: str) -> str:
