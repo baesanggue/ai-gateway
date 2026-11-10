@@ -3,6 +3,7 @@
 디자인은 11/09 사용자 의견을 따른다: 예전 화면 예시(docs/design/ui-demo.html)의 모양(회색 메뉴, 이름표가 붙은 카드,
 색으로 나눈 칸), 이모지 없음, 메뉴는 왼쪽에서 열고 닫는다, 창은 1200×800 안팎에 맞춘다.
 """
+import html
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ CSS = """
   --gw-line: #e5e7eb; --gw-sub: #6b7280; --gw-soft: #fafafa;
 }
 /* 본문 글꼴만 바꾼다. 아이콘(Material Symbols) 글꼴까지 덮으면 메뉴 아이콘이 글자로 나온다 */
-.stMarkdown, .stMarkdown p, .stCaption, .gw-term, .gw-panel, .gw-step, .gw-metric, .gw-status { font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+.stMarkdown, .stMarkdown p, .stCaption, .gw-term, .gw-panel, .gw-step, .gw-metric, .gw-status, .gw-box, .gw-kv { font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
 .gw-term, .gw-metric .v { font-family: var(--gw-mono) !important; }
 .block-container, [data-testid="stMainBlockContainer"] { padding-top: 1.2rem; padding-bottom: 1rem; max-width: 100%; }
 h1.gw-title { font-size: 1.35rem; margin: 0 0 0.1rem 0; padding: 0; }
@@ -60,7 +61,7 @@ div[data-testid="stForm"] input::placeholder { color: #9ca3af; opacity: 1; }
 .gw-hint { font-size: 0.82rem; color: var(--gw-sub); border: 1px dashed var(--gw-line); border-radius: 8px; padding: 14px; }
 
 /* 처리 과정 */
-.st-key-steps { overflow-x: hidden; }
+.st-key-steps, .st-key-log_steps { overflow-x: hidden; }
 .gw-step { border: 1px solid var(--gw-line); border-radius: 8px; padding: 5px 10px; background: var(--gw-soft); }
 .gw-step .h { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; }
 .gw-step .s { font-size: 0.82rem; margin-top: 2px; }
@@ -82,6 +83,22 @@ div[data-testid="stForm"] input::placeholder { color: #9ca3af; opacity: 1; }
 /* 왼쪽 메뉴의 상태 */
 .gw-status { font-size: 0.8rem; line-height: 1.9; }
 .gw-status .ok { color: #16a34a; } .gw-status .bad { color: #dc2626; }
+
+/* 이름표 + 값 (설정·현황) */
+.gw-kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 0.85rem; margin: 0.2rem 0 0.5rem 0; }
+.gw-kv span { color: var(--gw-sub); }
+
+/* 가로 막대 (현황): 한 계열 한 색, 값은 글자색으로 옆에 */
+.gw-bars { display: flex; flex-direction: column; gap: 7px; font-size: 0.82rem; }
+.gw-bar { display: grid; grid-template-columns: 1fr auto; align-items: baseline; row-gap: 3px; column-gap: 8px; }
+.gw-bar .l { color: #374151; }
+.gw-bar .t { grid-column: 1 / -1; height: 8px; }
+.gw-bar .f { display: block; height: 100%; background: #2563eb; border-radius: 0 4px 4px 0; }
+.gw-bar .v { font-family: var(--gw-mono); color: #111827; }
+.gw-bar .v i { font-style: normal; color: var(--gw-sub); margin-left: 4px; }
+.gw-box { border: 1px solid var(--gw-line); border-radius: 10px; padding: 10px 14px; background: #fff; height: 100%; }
+.gw-box h4 { font-size: 0.8rem; color: var(--gw-sub); margin: 0 0 8px 0; font-weight: 600; }
+.gw-box .empty { font-size: 0.82rem; color: var(--gw-sub); }
 </style>
 """
 
@@ -106,21 +123,59 @@ def health(url: str) -> dict | None:
         return None
 
 
+def bars(items: list[tuple[str, int]], unit: str = "건") -> str:
+    """가로 막대 (한 계열이라 한 색, 범례 없음). 값과 비율은 막대 옆 글자로, 마우스를 올리면 같은 내용이 뜬다."""
+    total = sum(n for _, n in items) or 1
+    top = max((n for _, n in items), default=0) or 1
+    rows = "".join(
+        f"<div class='gw-bar' title='{html.escape(label)}: {n}{unit} ({n / total:.0%})'>"
+        f"<span class='l'>{html.escape(label)}</span><span class='v'>{n}{unit} <i>{n / total:.0%}</i></span>"
+        f"<span class='t'><span class='f' style='width:{max(n / top * 100, 1.5 if n else 0):.1f}%'></span></span></div>"
+        for label, n in items)
+    return f"<div class='gw-bars'>{rows}</div>"
+
+
+STATUS_KO = {"done": "완료", "skipped": "건너뜀", "blocked": "차단"}
+
+
+def step_card(n: int, step) -> str:
+    return (f"<div class='gw-step {step.status}'><div class='h'><span>{n}. {step.title}</span>"
+            f"<span class='gw-chip {step.status}'>{STATUS_KO[step.status]}</span></div>"
+            f"<div class='s'>{html.escape(step.summary)}</div></div>")
+
+
+def steps_view(row: dict, thresholds: dict, height: int, key: str) -> None:
+    """처리 과정 다섯 단계 카드. 이 칸 안에서만 스크롤하고, 자세히는 정보 아이콘의 작은 창으로 띄운다 (11/09 의견)."""
+    from admin.flow import build_steps
+    with st.container(height=height, border=False, key=key):
+        for n, step in enumerate(build_steps(row, thresholds), 1):
+            card, more = st.columns([6, 0.7], vertical_alignment="center", gap="small")
+            card.markdown(step_card(n, step), unsafe_allow_html=True)
+            if step.details:
+                with more.popover("", icon=":material/info:", help="자세히: 확률·기준값·비용·시간"):
+                    st.markdown(f"**{n}. {step.title}**")
+                    st.table({"항목": [k for k, _ in step.details], "값": [str(v) for _, v in step.details]},
+                             hide_index=True)
+
+
 def page_header(title: str, note: str) -> None:
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown(f"<h1 class='gw-title'>{title}</h1><div class='gw-note'>{note}</div>", unsafe_allow_html=True)
 
 
 def sidebar_status(s) -> None:
-    """왼쪽 메뉴 아래쪽: 게이트웨이가 켜져 있는지, 보안 수준, 업종, 사전."""
+    """왼쪽 메뉴 아래쪽: 게이트웨이가 켜져 있는지, 보안 수준, 업종, 사전.
+    게이트웨이가 켜져 있으면 게이트웨이가 지금 쓰는 값을, 꺼져 있으면 설정 파일의 값을 보인다."""
     h = health(gateway_url(s))
     dot = "<span class='ok'>●</span> 연결됨" if h else "<span class='bad'>●</span> 꺼져 있음"
+    level = (h or {}).get("security_level", s.config.security_level)
+    preset = (h or {}).get("preset", s.config.preset)
     dictionary = {"example": "시연용", "custom": "회사 사전"}.get((h or {}).get("dictionary"), "-")
     with st.sidebar:
         st.markdown("<div class='gw-label'>상태</div>", unsafe_allow_html=True)
         st.markdown(
             f"<div class='gw-status'>게이트웨이 &nbsp;{dot}<br>"
-            f"보안 수준 &nbsp;<b>{LEVEL_KO.get(s.config.security_level)}</b><br>"
-            f"업종 &nbsp;<b>{PRESET_KO.get(s.config.preset, s.config.preset)}</b><br>"
+            f"보안 수준 &nbsp;<b>{LEVEL_KO.get(level, level)}</b><br>"
+            f"업종 &nbsp;<b>{PRESET_KO.get(preset, preset)}</b><br>"
             f"사용자 사전 &nbsp;<b>{dictionary}</b></div>", unsafe_allow_html=True)
-        st.caption("설정은 config.yaml에서 바꾸고 다시 시작합니다.")
+        st.caption("설정 메뉴에서 바꾸면 바로 적용됩니다.")

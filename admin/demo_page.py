@@ -13,12 +13,11 @@ from pathlib import Path
 import streamlit as st
 from openai import OpenAI, OpenAIError
 
-from admin.flow import build_steps, outbound_text, session_totals
-from admin.ui import ROOT, gateway_url, page_header, settings
+from admin.flow import outbound_text, session_totals
+from admin.ui import ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
 TOKEN = re.compile(r"\[[^\[\]\s]{1,12}\d+\]")
-STATUS_KO = {"done": "완료", "skipped": "건너뜀", "blocked": "차단"}
 FOCUS = """<script>
 setTimeout(() => {
   const doc = (window.parent && window.parent.document) || document;
@@ -81,12 +80,6 @@ def _terminal(turns: list[dict]) -> str:
     return f"<div class='gw-term'><div>{body}</div></div>"     # column-reverse 안쪽 한 덩어리 → 맨 아래부터 보인다
 
 
-def _step_card(n: int, step) -> str:
-    return (f"<div class='gw-step {step.status}'><div class='h'><span>{n}. {step.title}</span>"
-            f"<span class='gw-chip {step.status}'>{STATUS_KO[step.status]}</span></div>"
-            f"<div class='s'>{html.escape(step.summary)}</div></div>")
-
-
 def _panels(row: dict | None, turn: dict) -> str:
     out = outbound_text(row) if row else None
     out_html = ("<span class='none'>외부로 나간 것 없음</span>" if out is None
@@ -111,15 +104,7 @@ def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
     if row is None:
         st.warning("이 요청의 기록을 찾지 못했습니다 (게이트웨이 연결 실패).")
         return
-    with st.container(height=300, border=False, key="steps"):      # 단계가 길어도 이 칸 안에서만 스크롤
-        for n, step in enumerate(build_steps(row, s.config.decision.thresholds), 1):
-            card, more = st.columns([6, 0.7], vertical_alignment="center", gap="small")
-            card.markdown(_step_card(n, step), unsafe_allow_html=True)
-            if step.details:
-                with more.popover("", icon=":material/info:", help="자세히: 확률·기준값·비용·시간"):   # 화면을 밀지 않고 위에 띄운다
-                    st.markdown(f"**{n}. {step.title}**")
-                    st.table({"항목": [k for k, _ in step.details], "값": [str(v) for _, v in step.details]},
-                             hide_index=True)
+    steps_view(row, s.config.decision.thresholds, height=300, key="steps")   # 단계가 길어도 이 칸 안에서만 스크롤
 
 
 def page() -> None:

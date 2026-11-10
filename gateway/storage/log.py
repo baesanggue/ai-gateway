@@ -11,7 +11,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +152,24 @@ class RequestLog:
         out["saved_usd"] = out["baseline_cost_usd"] - out["cost_usd"]
         out["by_route"] = by_route
         return out
+
+    def breakdown(self, today: date | None = None) -> dict[str, Any]:
+        """현황 화면용 (#78): 차단 사유별 요청 수, 가린 개인정보 종류별 개수, 오늘(이 PC 시각) 요청 수.
+        로그에는 종류·개수만 있다(값은 없다). 요청이 수만 건을 넘으면 기간을 나눠 집계하도록 바꾼다."""
+        today = today or datetime.now().astimezone().date()
+        reasons: dict[str, int] = {}
+        pii: dict[str, int] = {}
+        n_today = 0
+        with self._db() as con:
+            rows = con.execute("SELECT route, reasons, pii_counts, created_at FROM requests").fetchall()
+        for r in rows:
+            if r["route"] == "block":
+                for reason in json.loads(r["reasons"]):
+                    reasons[reason] = reasons.get(reason, 0) + 1
+            for kind, n in json.loads(r["pii_counts"]).items():
+                pii[kind] = pii.get(kind, 0) + n
+            n_today += datetime.fromisoformat(r["created_at"]).astimezone().date() == today
+        return {"block_reasons": reasons, "pii": pii, "today": n_today}
 
 
 def _decode(row: sqlite3.Row) -> dict[str, Any]:

@@ -5,6 +5,8 @@
 - 다른 설정 파일을 쓰려면 환경변수 AIGW_CONFIG에 경로를 준다.
 - 업종 프리셋(D22): config.yaml의 `preset: shop`이면 config/presets/shop.yaml을 기본값으로 깔고,
   config.yaml에 직접 적은 값이 그 위를 덮는다. 업종마다 달라지는 것(FAQ, 회사별 식별번호, 시연용 사전)만 프리셋에 둔다
+- 화면에서 바꾼 설정(D26): private/settings.override.yaml(커밋 안 함)이 config.yaml 위를 덮는다. 보안 수준·업종 프리셋·
+  등록 지시문만 바꿀 수 있다. 우선순위: 프리셋 < config.yaml < 화면 설정. 경로를 직접 준 호출(시험·측정)에는 쓰지 않는다
 """
 import os
 import re
@@ -19,6 +21,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "config.yaml"
 DEFAULT_ENV = ROOT / ".env"
 PRESETS_DIR = ROOT / "config" / "presets"
+DEFAULT_OVERRIDE = ROOT / "private" / "settings.override.yaml"
+# 화면에서 바꿀 수 있는 설정 (D26). 그 밖의 키가 있으면 시작하지 않는다 (모델·주소·기준값은 config.yaml에서만)
+OVERRIDE_KEYS = {"security_level": None, "preset": None, "decision": {"trusted_system_prompts": None}}
 PRESET_NAME = re.compile(r"[a-z][a-z0-9_]{0,30}")
 TOKEN_KIND = re.compile(r"[가-힣A-Za-z_]{1,10}")   # 토큰 [종류N]의 종류. 숫자·괄호는 토큰 번호와 섞여 안 된다
 # 반복 안에 또 반복: "(a+)+" 같은 모양은 긴 입력에서 처리 시간이 폭증한다 (#11 보안 검토와 같은 문제)
@@ -181,9 +186,14 @@ class Settings(BaseModel):
     secrets: Secrets
 
 
-def load_settings(config_path: Path | None = None, env_file: Path | None = None) -> Settings:
+def load_settings(config_path: Path | None = None, env_file: Path | None = None,
+                  override_path: Path | None = None) -> Settings:
+    """override_path: 화면에서 바꾼 설정 파일. config_path를 주지 않으면(게이트웨이·화면) 기본 위치를 쓴다."""
     path = Path(config_path or os.environ.get("AIGW_CONFIG") or DEFAULT_CONFIG)
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    override_path = override_path or (DEFAULT_OVERRIDE if config_path is None else None)
+    if override_path:
+        raw = _merge(raw, load_override(Path(override_path)))
     if raw.get("preset"):
         raw = _merge(load_preset(raw["preset"]), raw)     # 프리셋이 바탕, config.yaml이 위
     config = AppConfig.model_validate(raw)
@@ -197,6 +207,26 @@ def load_preset(name: str) -> dict:
     if not PRESET_NAME.fullmatch(str(name)) or not (PRESETS_DIR / f"{name}.yaml").exists():
         raise ValueError(f"업종 프리셋 '{name}'이(가) 없다. 쓸 수 있는 프리셋: {', '.join(available)}")
     return yaml.safe_load((PRESETS_DIR / f"{name}.yaml").read_text(encoding="utf-8")) or {}
+
+
+def load_override(path: Path) -> dict:
+    """화면에서 바꾼 설정(D26). 없으면 빈 dict. 바꿀 수 없는 키가 있으면 시작하지 않는다(어느 키인지 알려 준다)."""
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    _check_keys(data, OVERRIDE_KEYS, "")
+    return data
+
+
+def _check_keys(data, allowed: dict, prefix: str) -> None:
+    if not isinstance(data, dict):
+        raise ValueError(f"화면 설정 파일 {DEFAULT_OVERRIDE.name}의 {prefix or '맨 위'}는 키: 값 형식이어야 한다")
+    for key, value in data.items():
+        if key not in allowed:
+            raise ValueError(f"화면 설정 파일 {DEFAULT_OVERRIDE.name}에서 바꿀 수 없는 설정: {prefix}{key} "
+                             f"(바꿀 수 있는 것: 보안 수준·업종 프리셋·등록 지시문, 나머지는 config.yaml)")
+        if allowed[key] is not None:
+            _check_keys(value, allowed[key], f"{prefix}{key}.")
 
 
 def _merge(base: dict, over: dict) -> dict:

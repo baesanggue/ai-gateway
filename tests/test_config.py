@@ -39,3 +39,36 @@ def test_invalid_security_level_is_rejected(tmp_path):
     bad.write_text(text, encoding="utf-8")
     with pytest.raises(ValidationError):
         load_settings(bad, env_file=tmp_path / "없는.env")
+
+
+# ── 화면에서 바꾼 설정 (D26, #78) ──
+
+def test_override_changes_level_preset_and_prompts(tmp_path):
+    over = tmp_path / "settings.override.yaml"
+    over.write_text("security_level: strict\npreset: medical\n"
+                    "decision:\n  trusted_system_prompts: [private/trusted_prompt.txt]\n", encoding="utf-8")
+    c = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env", override_path=over).config
+    assert c.security_level == "strict"
+    assert c.preset == "medical"
+    assert "금식" in c.masking.not_names                       # 업종을 바꾸면 그 프리셋의 값이 바탕이 된다
+    assert c.decision.trusted_system_prompts == ["private/trusted_prompt.txt"]
+    assert c.decision.model == "gliclass:v4-edge"              # 나머지 decision 값은 config.yaml 그대로
+
+
+def test_override_rejects_other_keys(tmp_path):
+    over = tmp_path / "settings.override.yaml"
+    for text in ("storage:\n  sqlite_path: x.db\n", "decision:\n  model: other\n", "decision: strict\n"):
+        over.write_text(text, encoding="utf-8")
+        with pytest.raises(ValueError):
+            load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env", override_path=over)
+
+
+def test_override_is_not_used_when_config_path_is_given(tmp_path, monkeypatch):
+    # 시험·측정은 경로를 직접 준다. 화면에서 바꾼 설정이 결과를 바꾸면 안 된다
+    import gateway.config as config
+    over = tmp_path / "settings.override.yaml"
+    over.write_text("security_level: strict\n", encoding="utf-8")
+    monkeypatch.setattr(config, "DEFAULT_OVERRIDE", over)
+    assert load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env").config.security_level == "basic"
+    monkeypatch.setenv("AIGW_CONFIG", str(ROOT / "config.yaml"))
+    assert config.load_settings(env_file=tmp_path / "없는.env").config.security_level == "strict"

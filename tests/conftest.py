@@ -10,3 +10,10 @@ def fake_ner_model(monkeypatch):
     설정으로 가명화 부품을 만드는 시험은 아무것도 찾지 않는 가짜 모델을 쓴다. 모델 없는 PC에서도 시험이 돈다.
     실제 모델 시험은 tests/test_ner.py(파일이 있을 때만), 시작 거부 시험은 이 대체를 되돌려 진짜 불러오기를 쓴다."""
     monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer())
+
+
+@pytest.fixture(autouse=True)
+def temp_admin_token(monkeypatch, tmp_path):
+    """게이트웨이는 켤 때 관리 토큰을 private/admin.token에 쓴다(D26). 시험이 이 PC에서 돌고 있는 게이트웨이의
+    토큰 파일을 덮어쓰지 않게 임시 폴더로 돌린다."""
+    monkeypatch.setattr("gateway.admin_token.ADMIN_TOKEN_PATH", tmp_path / "admin.token")
