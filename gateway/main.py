@@ -3,15 +3,20 @@
 실행: uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000
 전제: .env에 OPENAI_API_KEY, Ollaya가 config.yaml의 decision.base_url에서 실행 중
 """
+import hmac
+import logging
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from gateway import admin_token
+from gateway.admin_token import ADMIN_TOKEN_HEADER, write_admin_token
 from gateway.api.routes import local_problem, openai_error, router
 from gateway.config import Settings, load_settings
 from gateway.masking.masker import Masker
@@ -24,9 +29,12 @@ RETIRE_SECONDS = 180
 # 설정을 다시 읽다 실패할 수 있는 이유: 설정 형식(ValueError·pydantic), 사전·지시문·모델 파일 없음(RuntimeError), 파일 읽기
 RELOAD_ERRORS = (ValueError, RuntimeError, OSError, yaml.YAMLError)
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(settings: Settings | None = None, *, transport=None, masker: Masker | None = None,
-               log: RequestLog | None = None, reload_settings: Callable[[], Settings] | None = None) -> FastAPI:
+               log: RequestLog | None = None, reload_settings: Callable[[], Settings] | None = None,
+               admin_token_path: Path | None = None) -> FastAPI:
     """transport·masker·log는 테스트에서 가짜 상위 서버, 가짜 가명화, 임시 DB를 넣을 때 쓴다.
     reload_settings: /admin/reload가 설정을 다시 읽는 함수 (기본은 load_settings, 테스트에서 바꾼다)."""
     settings = settings or load_settings()
@@ -37,6 +45,8 @@ def create_app(settings: Settings | None = None, *, transport=None, masker: Mask
     async def lifespan(app: FastAPI):
         # 판단 엔진·LLM 클라이언트(httpx 연결)와 로그는 시작할 때 한 번 만들고 끝날 때 닫는다
         app.state.gateway = Gateway.from_settings(settings, transport=transport, masker=masker, log=log)
+        # 관리 토큰 (D26): 켤 때마다 새로. 설정 화면만 이 파일을 읽어 설정 다시 읽기를 부른다
+        app.state.admin_token = write_admin_token(admin_token_path or admin_token.ADMIN_TOKEN_PATH)
         yield
         app.state.gateway.close()
 
@@ -64,18 +74,20 @@ def create_app(settings: Settings | None = None, *, transport=None, masker: Mask
     def reload(request: Request):
         """설정을 다시 읽어 다음 요청부터 쓴다 (D26, 화면의 설정 메뉴가 부른다). 다시 시작하지 않아도 된다.
 
-        - 같은 PC의 프로그램만 부를 수 있다. 게이트웨이 키를 설정해 외부에 열어 두어도 이것은 열지 않는다
+        - 관리 토큰(private/admin.token)을 헤더로 보낸 같은 PC의 프로그램만 부를 수 있다. 게이트웨이 키로는 열리지 않는다
         - 시작할 때와 똑같이 만든다: 사전·지시문·모델 파일이 없거나 설정이 틀리면 실패하고, 지금 설정을 그대로 쓴다
         - 처리 중이던 요청은 이전 설정으로 끝나고, 이전 연결은 잠시 뒤에 닫는다
         """
-        if local_problem(request) is not None:
-            return JSONResponse(status_code=403, content={"status": "error",
-                                                          "message": "설정 다시 읽기는 같은 PC의 프로그램에서만 할 수 있습니다."})
+        token = request.headers.get(ADMIN_TOKEN_HEADER, "")
+        if local_problem(request) is not None or not hmac.compare_digest(token.encode(), app.state.admin_token.encode()):
+            return JSONResponse(status_code=403, content={"status": "error", "message": "허용되지 않은 요청입니다."})
         with reload_lock:                  # 두 번 동시에 눌러도 차례로 만든다
             try:
                 new_settings = reload_settings()
                 new_gateway = Gateway.from_settings(new_settings, transport=transport, masker=masker, log=log)
             except RELOAD_ERRORS as e:
+                # 토큰을 가진 같은 PC의 화면에만 돌려준다. 사전 오류는 줄 번호만 들어 있다(값은 없다)
+                logger.warning("설정 다시 읽기 실패: %s", e)
                 return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
             old = app.state.gateway
             app.state.settings, app.state.gateway = new_settings, new_gateway
