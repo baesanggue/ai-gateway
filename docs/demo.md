@@ -3,13 +3,17 @@
 시연과 관리에 쓰는 화면이다. 브라우저 탭이 아니라 **프로그램 창**(1200×800 안팎)으로 연다.
 
 ## 실행
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1   # Ollaya·게이트웨이·화면을 켜고 프로그램 창을 연다
+powershell -ExecutionPolicy Bypass -File scripts\stop.ps1    # 끄기
+```
+설치는 `scripts\install.ps1`, 자세한 것은 `docs/install.md` (#77). 따로 켜려면:
 ```bash
 ollaya serve                                                   # 로컬 판단 서버 (11435)
 uv run uvicorn gateway.main:app --host 127.0.0.1 --port 8000   # 게이트웨이
 uv run streamlit run admin/app.py                              # 화면 서버 (127.0.0.1:8501)
 powershell -ExecutionPolicy Bypass -File scripts/open-app.ps1  # 프로그램 창으로 열기 (Edge/Chrome 앱 창)
 ```
-설치·실행을 스크립트 하나로 묶는 것은 #77에서 한다.
 
 ## 구성 (11/09 사용자 의견 반영)
 - **왼쪽 메뉴**(열고 닫을 수 있음, `admin/nav.py`): 맨 위 프로그램 이름, 기능 메뉴(**현황 / 시연 / 파일 검사 / 요청 기록 / 설정**), 상태(게이트웨이 연결, 보안 수준, 업종, 사용자 사전 — 게이트웨이가 지금 쓰는 값)
