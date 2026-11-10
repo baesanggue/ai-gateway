@@ -125,3 +125,16 @@ def test_old_db_gets_unrestored_column(tmp_path):
     log = RequestLog(path)
     rid = log.save(record(unrestored_tokens=2))
     assert log.get(rid)["unrestored_tokens"] == 2
+
+
+def test_breakdown_counts_kinds_reasons_and_today(log):
+    """현황 화면 (#78): 차단 사유는 차단된 요청에서만, 개인정보는 종류별 개수만(값 없음), 오늘은 이 PC 날짜 기준."""
+    from datetime import date
+    log.save(record())                                                          # 고객 1, 전화번호 1
+    log.save(record(route="block", reasons=["needs_raw"], pii_counts={"주민등록번호": 1}))
+    log.save(record(route="block", reasons=["risky", "needs_raw"], pii_counts={}))
+    log.save(record(route="template", reasons=["faq"], pii_counts={}, created_at="2026-01-02T03:00:00.000+00:00"))
+    b = log.breakdown(today=date.today())
+    assert b["block_reasons"] == {"needs_raw": 2, "risky": 1}
+    assert b["pii"] == {"고객": 1, "전화번호": 1, "주민등록번호": 1}
+    assert b["today"] == 3
