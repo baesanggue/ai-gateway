@@ -56,7 +56,8 @@ $ollaya = Find-Exe "ollaya" (Join-Path $env:LOCALAPPDATA "Programs\Ollaya\bin\ol
 Write-Host "AI 게이트웨이 켜기"
 Start-Hidden "ollaya" $ollaya @("serve") $OllayaPort 30
 Start-Hidden "gateway" $uv @("run", "--frozen", "uvicorn", "gateway.main:app", "--host", "127.0.0.1", "--port", "$GatewayPort") $GatewayPort 90
-Start-Hidden "screen" $uv @("run", "--frozen", "streamlit", "run", "admin/app.py", "--server.port", "$ScreenPort") $ScreenPort 60
+# 화면도 이 PC에서만 연다. .streamlit/config.toml에도 있지만 그 파일은 작업 폴더에서만 읽혀서, 명령줄에 한 번 더 적는다 (D20)
+Start-Hidden "screen" $uv @("run", "--frozen", "streamlit", "run", "admin/app.py", "--server.address", "127.0.0.1", "--server.port", "$ScreenPort") $ScreenPort 60
 
 try {
     $h = Invoke-RestMethod -Uri "http://127.0.0.1:$GatewayPort/healthz" -TimeoutSec 5
