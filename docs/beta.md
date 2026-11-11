@@ -25,7 +25,7 @@
    - 화면이 이미 켜져 있으면 열지 않는다(체험판 설정으로 켜졌는지 알 수 없다)
    - 판단 모델을 체험 기간 내내 올려 둔다(`OLLAYA_KEEP_ALIVE=24h`). 5분 쉬면 모델이 내려가 첫 요청이 약 20초 걸리던 것을 없앤다(#84)
    - Cloudflare Quick Tunnel을 열고 `체험판 주소: https://….trycloudflare.com`을 찍는다. 이 주소를 설문 안내에 넣는다
-4. 터널(cloudflared): `%LOCALAPPDATA%i-gatewayin\cloudflared.exe` (Cloudflare 공식 GitHub 릴리스, 서명 "Cloudflare, Inc." 확인, 11/11)
+4. 터널(cloudflared): `%LOCALAPPDATA%\ai-gateway\bin\cloudflared.exe` (Cloudflare 공식 GitHub 릴리스, 서명 "Cloudflare, Inc." 확인, 11/11)
    - 계정 없이 무료. **켤 때마다 주소가 바뀌고**, 프로세스가 끝나면(PC 끄기·잠자기 포함) 주소도 끝난다. 동시 요청 200개까지, 가동 보장 없음
    - 웹소켓(화면 반응)은 11/11 터널 주소로 화면이 그려지는 것으로 확인했다
    - 체험 기간에는 PC를 켜 두고 절전을 끈다. 주소가 바뀌면 설문 안내를 고친다
