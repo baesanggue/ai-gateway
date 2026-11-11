@@ -20,15 +20,20 @@
 
 1. `.env`에 `BETA_PASSWORD=`(설문 메시지로만 알린다)를 넣는다. 운영자가 직접 넣는다. **12자 이상**으로, 낱말 몇 개와 숫자를 섞어 맞히기 어렵게 한다(예: 낱말 3개 + 숫자 4자리). 인터넷에 열리므로 짧은 비밀번호는 쓰지 않는다
 2. 개발 중 쌓인 요청 기록과 섞이지 않게 `data/gateway.db`를 다른 이름으로 옮겨 둔다(예: `data/gateway-dev-2026-11-11.db`). 새 기록은 체험판 기록이 된다
-3. `scripts\start.ps1 -NoWindow`로 켠다
-4. 터널: `cloudflared tunnel --url http://localhost:8501` → 찍히는 `https://….trycloudflare.com` 주소를 설문 메시지에 넣는다
-   - Cloudflare Quick Tunnel: 계정 없이 무료. **켤 때마다 주소가 바뀌고**, 프로세스가 끝나면(PC 끄기·잠자기 포함) 주소도 끝난다. 동시 요청 200개까지, 가동 보장 없음
+3. 켜져 있던 것을 끄고(`scripts\stop.ps1`) **`scripts\start.ps1 -Beta`** 로 켠다. 이 한 줄이:
+   - `.env`에 `BETA_PASSWORD`가 없으면 열지 않는다(설정을 바꿀 수 있는 평소 화면이 인터넷에 열리는 것을 막는다). 값은 읽지 않고 있는지만 본다
+   - 화면이 이미 켜져 있으면 열지 않는다(체험판 설정으로 켜졌는지 알 수 없다)
+   - 판단 모델을 체험 기간 내내 올려 둔다(`OLLAYA_KEEP_ALIVE=24h`). 5분 쉬면 모델이 내려가 첫 요청이 약 20초 걸리던 것을 없앤다(#84)
+   - Cloudflare Quick Tunnel을 열고 `체험판 주소: https://….trycloudflare.com`을 찍는다. 이 주소를 설문 안내에 넣는다
+4. 터널(cloudflared): `%LOCALAPPDATA%i-gatewayin\cloudflared.exe` (Cloudflare 공식 GitHub 릴리스, 서명 "Cloudflare, Inc." 확인, 11/11)
+   - 계정 없이 무료. **켤 때마다 주소가 바뀌고**, 프로세스가 끝나면(PC 끄기·잠자기 포함) 주소도 끝난다. 동시 요청 200개까지, 가동 보장 없음
+   - 웹소켓(화면 반응)은 11/11 터널 주소로 화면이 그려지는 것으로 확인했다
    - 체험 기간에는 PC를 켜 두고 절전을 끈다. 주소가 바뀌면 설문 안내를 고친다
 5. 휴대폰(다른 네트워크)으로 주소 + 비밀번호로 들어가 시나리오 4개를 확인한다
 
 ## 끄기
 
-- 터널 창을 닫고 `scripts\stop.ps1`. `.env`의 `BETA_PASSWORD`를 비우면 화면이 다시 설치형으로 돌아온다
+- `scripts\stop.ps1` (터널도 함께 끈다). `.env`의 `BETA_PASSWORD`를 비우면 화면이 다시 설치형으로 돌아온다
 
 ## 체험 기록 보기
 
