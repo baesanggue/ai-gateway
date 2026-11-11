@@ -13,11 +13,13 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from admin import beta  # noqa: E402
 from admin.nav import pages  # noqa: E402
 from admin.ui import settings, sidebar_status  # noqa: E402
 
-st.set_page_config(page_title="AI 게이트웨이", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="가림게이트", layout="wide", initial_sidebar_state="expanded")
 st.logo(str(Path(__file__).resolve().parent / "logo.svg"), size="large")   # 메뉴 맨 위 프로그램 이름
+beta.gate(settings())                     # 웹 체험판이면 비밀번호부터 (#90). 통과 전에는 메뉴도 그리지 않는다
 nav = st.navigation(list(pages().values()), position="sidebar")
 sidebar_status(settings())
 nav.run()

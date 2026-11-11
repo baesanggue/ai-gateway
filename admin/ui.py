@@ -50,18 +50,22 @@ h1.gw-title { font-size: 1.35rem; margin: 0 0 0.1rem 0; padding: 0; }
 .gw-term .meta { color: #6b7280; }
 .gw-term .empty { color: #6b7280; }
 div[data-testid="InputInstructions"] { display: none; }
-/* 입력 줄: 터미널 바로 아래에 붙여, 어디에 쓰는지·커서가 어디 있는지 보이게 (11/09 사용자 의견) */
-div[data-testid="stForm"] { border: none; padding: 4px 8px 8px 4px; background: #1e1f24; border-radius: 0 0 8px 8px; }
-div[data-testid="stForm"] div[data-baseweb="input"] { background: #2b2d35; border: 1px solid #4b5563; border-radius: 6px; }
-div[data-testid="stForm"] div[data-baseweb="input"]:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.35); }
-div[data-testid="stForm"] [data-baseweb="base-input"], div[data-testid="stForm"] input {
+/* 입력 줄(시연 화면의 cli_box만): 터미널 바로 아래에 붙여, 어디에 쓰는지·커서가 어디 있는지 보이게 (11/09 사용자 의견) */
+.st-key-cli_box div[data-testid="stForm"] { border: none; padding: 4px 8px 8px 4px; background: #1e1f24; border-radius: 0 0 8px 8px; }
+.st-key-cli_box div[data-testid="stForm"] div[data-baseweb="input"] { background: #2b2d35; border: 1px solid #4b5563; border-radius: 6px; }
+.st-key-cli_box div[data-testid="stForm"] div[data-baseweb="input"]:focus-within { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.35); }
+.st-key-cli_box div[data-testid="stForm"] [data-baseweb="base-input"], .st-key-cli_box div[data-testid="stForm"] input {
   font-family: var(--gw-mono); background: #2b2d35 !important; color: #f9fafb !important; caret-color: #93c5fd; }
-div[data-testid="stForm"] input::placeholder { color: #9ca3af; opacity: 1; }
+.st-key-cli_box div[data-testid="stForm"] input::placeholder { color: #9ca3af; opacity: 1; }
 .gw-prompt { font-family: var(--gw-mono); color: #93c5fd; font-size: 1.3rem; font-weight: 700; text-align: center; }
 .gw-hint { font-size: 0.82rem; color: var(--gw-sub); border: 1px dashed var(--gw-line); border-radius: 8px; padding: 14px; }
 
 /* 처리 과정 */
 .st-key-steps, .st-key-log_steps { overflow-x: hidden; }
+/* 체험판 안내 (#90): 처리 과정 칸·작은 창에 다 들어가게 작은 글씨 */
+.st-key-beta_guide p, .st-key-beta_guide li, div[data-testid="stPopoverBody"] p, div[data-testid="stPopoverBody"] li {
+  font-size: 0.8rem; line-height: 1.5; margin-bottom: 0.25rem; }
+.st-key-beta_guide code, div[data-testid="stPopoverBody"] code { font-size: 0.76rem; }
 .gw-step { border: 1px solid var(--gw-line); border-radius: 8px; padding: 5px 10px; background: var(--gw-soft); }
 .gw-step .h { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; }
 .gw-step .s { font-size: 0.82rem; margin-top: 2px; }
@@ -178,4 +182,5 @@ def sidebar_status(s) -> None:
             f"보안 수준 &nbsp;<b>{LEVEL_KO.get(level, level)}</b><br>"
             f"업종 &nbsp;<b>{PRESET_KO.get(preset, preset)}</b><br>"
             f"사용자 사전 &nbsp;<b>{dictionary}</b></div>", unsafe_allow_html=True)
-        st.caption("설정 메뉴에서 바꾸면 바로 적용됩니다.")
+        from admin import beta
+        st.caption("체험판 · 설정은 운영자만 바꿉니다." if beta.enabled(s) else "설정 메뉴에서 바꾸면 바로 적용됩니다.")

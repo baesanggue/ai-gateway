@@ -11,7 +11,9 @@ from datetime import datetime
 
 import streamlit as st
 
+from admin import beta
 from admin.flow import REASON_KO, ROUTE_KO
+from admin.stats import summarize
 from admin.ui import bars, page_header, settings
 from gateway.storage.log import RequestLog
 
@@ -46,9 +48,14 @@ def _time(iso: str) -> str:
 
 def page() -> None:
     s = settings()
-    page_header("현황", "게이트웨이를 거친 모든 요청의 누적입니다. 요청 기록에는 가명화된 문장만 남습니다.")
     log = RequestLog.from_config(s.config.storage)
-    t, b = log.totals(), log.breakdown()
+    if beta.enabled(s):                                   # 체험판: 내가 보낸 요청만 (#90)
+        page_header("현황", "체험판: 내가 보낸 요청만 보입니다. 요청 기록에는 가명화된 문장만 남습니다.")
+        mine = beta.my_rows(log)
+        (t, b), recent = summarize(mine), mine[:5]
+    else:
+        page_header("현황", "게이트웨이를 거친 모든 요청의 누적입니다. 요청 기록에는 가명화된 문장만 남습니다.")
+        t, b, recent = log.totals(), log.breakdown(), log.recent(5)
     st.markdown(_tiles(t, b), unsafe_allow_html=True)
 
     left, right = st.columns(2, gap="medium")
@@ -64,7 +71,6 @@ def page() -> None:
     head.markdown("<div class='gw-label'>최근 요청</div>", unsafe_allow_html=True)
     from admin.nav import pages
     link.page_link(pages()["log"], label="요청 기록에서 모두 보기", icon=":material/arrow_forward:")
-    recent = log.recent(5)
     if not recent:
         st.markdown("<div class='gw-hint'>요청이 들어오면 여기에 나옵니다.</div>", unsafe_allow_html=True)
         return

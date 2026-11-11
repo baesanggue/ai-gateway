@@ -8,6 +8,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from admin import beta
 from admin.flow import REASON_KO, ROUTE_KO
 from admin.ui import LEVEL_KO, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
@@ -40,9 +41,13 @@ def _detail(row: dict) -> str:
 
 def page() -> None:
     s = settings()
-    page_header("요청 기록", f"최근 {LIMIT}건. 가명화된 문장과 판단·경로·비용만 남습니다 (원문과 답변은 남기지 않습니다).")
+    log = RequestLog.from_config(s.config.storage)
+    if beta.enabled(s):                                   # 체험판: 내가 보낸 요청만 (#90)
+        page_header("요청 기록", "체험판: 내가 보낸 요청만 보입니다. 가명화된 문장과 판단·경로·비용만 남습니다.")
+    else:
+        page_header("요청 기록", f"최근 {LIMIT}건. 가명화된 문장과 판단·경로·비용만 남습니다 (원문과 답변은 남기지 않습니다).")
     choice = st.segmented_control("경로", list(FILTERS), default="전체", label_visibility="collapsed") or "전체"
-    rows = RequestLog.from_config(s.config.storage).recent(LIMIT)
+    rows = beta.my_rows(log) if beta.enabled(s) else log.recent(LIMIT)
     if FILTERS[choice]:
         rows = [r for r in rows if r["route"] == FILTERS[choice]]
     if not rows:

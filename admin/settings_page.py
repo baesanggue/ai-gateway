@@ -9,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 import yaml
 
+from admin import beta
 from admin import settings_store as store
 from admin.ui import LEVEL_KO, PRESET_KO, gateway_url, health, page_header, settings
 from gateway import config as gw_config
@@ -122,8 +123,26 @@ def _models(s) -> None:
     st.caption("모델·주소·기준값은 측정으로 정한 값이라(D25) 화면에서 바꾸지 않습니다. config.yaml에서 바꾸고 게이트웨이를 다시 시작합니다.")
 
 
+def _level_preset_view(s) -> None:
+    """체험판 (#90): 보기만. 테스터가 게이트웨이 하나를 같이 쓰므로 바꾸면 모두에게 적용된다."""
+    level, preset = s.config.security_level, s.config.preset
+    st.markdown(f"<div class='gw-kv'><span>보안 수준</span><b>{LEVEL_KO[level]}</b>"
+                f"<span>업종 프리셋</span><b>{PRESET_KO.get(preset, preset)}</b></div>", unsafe_allow_html=True)
+    st.table({"보안 수준": [LEVEL_KO[v] for v in store.LEVELS], "동작": [LEVEL_HELP[v] for v in store.LEVELS]},
+             hide_index=True)
+    st.caption("설치형에서는 이 화면에서 보안 수준·업종·사용자 사전·등록 지시문을 바꾸면 다시 시작하지 않고 바로 적용됩니다.")
+
+
 def page() -> None:
     s = settings()
+    if beta.enabled(s):                       # 웹 체험판 (#90): 보기만. 사용자 사전·등록 지시문은 보이지 않는다
+        page_header("설정", "체험판에서는 설정을 볼 수만 있습니다. 모든 테스터가 운영자가 정한 같은 설정을 씁니다.")
+        tabs = st.tabs(["보안 수준·업종", "모델"], key="settings_tab_beta", on_change="rerun")
+        with tabs[0]:
+            _level_preset_view(s)
+        with tabs[1]:
+            _models(s)
+        return
     page_header("설정", "저장하면 게이트웨이에 바로 적용됩니다. 다시 시작하지 않아도 다음 요청부터 새 설정을 씁니다.")
     if (res := st.session_state.pop("settings_result", None)) is not None:
         (st.success if res[0] else st.error)(res[1])
