@@ -8,6 +8,7 @@
 - 게이트웨이·Ollaya는 그대로 이 PC 안(127.0.0.1)에만 있다. 인터넷에 열리는 것은 화면뿐이다
 """
 import hmac
+import ipaddress
 import threading
 import time
 from datetime import date, datetime
@@ -109,9 +110,20 @@ def _guard() -> LoginGuard:
 
 
 def _client() -> str:
-    """접속한 쪽의 주소. 화면은 127.0.0.1에서만 열리고 인터넷 요청은 Cloudflare 터널을 거쳐 오므로, 터널이 붙이는
-    CF-Connecting-IP를 쓴다. 없으면(이 PC에서 직접 연 경우) 소켓 주소."""
-    return st.context.headers.get("Cf-Connecting-Ip") or st.context.ip_address or "unknown"
+    """접속한 쪽의 주소 (비밀번호 틀림을 셀 때). 화면은 127.0.0.1에서만 열리고 인터넷 요청은 이 PC의 Cloudflare 터널을
+    거쳐 오므로, 소켓 주소가 루프백일 때만 터널이 붙인 CF-Connecting-IP를 믿는다. 아니면 소켓 주소를 쓴다
+    (11/11 보안 검토: 직접 들어온 요청이 머리글을 꾸며 주소별 잠금을 피하지 못하게)."""
+    return client_key(st.context.ip_address, st.context.headers.get("Cf-Connecting-Ip"))
+
+
+def client_key(socket_ip: str | None, forwarded: str | None) -> str:
+    try:
+        loopback = socket_ip is not None and ipaddress.ip_address(socket_ip).is_loopback
+    except ValueError:
+        loopback = False
+    if loopback and forwarded:
+        return f"cf:{forwarded.strip()}"
+    return socket_ip or "unknown"
 
 
 def gate(s) -> None:

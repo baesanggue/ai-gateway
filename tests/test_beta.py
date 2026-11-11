@@ -72,3 +72,13 @@ def test_login_guard_forgets_old_failures_and_success_resets_client():
     g.succeed("1.1.1.1")
     g.fail("1.1.1.1", now=103)
     assert not g.locked("1.1.1.1", now=104)
+
+
+def test_tunnel_header_is_trusted_only_for_loopback_connections():
+    """인터넷 요청은 이 PC의 터널(루프백)을 거친다. 직접 들어온 요청의 머리글은 믿지 않는다 (11/11 보안 검토)."""
+    from admin.beta import client_key
+    assert client_key("127.0.0.1", "203.0.113.9") == "cf:203.0.113.9"
+    assert client_key("::1", "203.0.113.9") == "cf:203.0.113.9"
+    assert client_key("198.51.100.4", "203.0.113.9") == "198.51.100.4"      # 꾸민 머리글
+    assert client_key("127.0.0.1", None) == "127.0.0.1"
+    assert client_key(None, "203.0.113.9") == "unknown"
