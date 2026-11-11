@@ -118,12 +118,13 @@ def test_unregistered_names_in_file_are_masked_with_one_model_call(tmp_path, mon
     assert r.findings[0].where == "2번째 줄" and "[이름1]" in r.masked_text and "양미래" not in r.masked_text
 
 
-def test_suspected_address_is_reported_without_its_value(tmp_path, monkeypatch):
+def test_address_found_by_the_model_is_masked_in_files_too(tmp_path, monkeypatch):
+    """시·도 없이 쓴 주소도 이름 인식 모델이 찾으면 파일 속에서 가린다 (#87). 결과에는 값이 없다."""
     monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer(addresses=["마포구 가상로 123"]))
     masker = RuleMasker.from_config(test_settings(tmp_path).config.masking)
     r = scan("메모.txt", "배송지: 마포구 가상로 123".encode("utf-8"), masker)
-    assert r.has_pii and r.suspected == ["주소"] and r.counts == {}
-    assert "남아 있을 수 있습니다" in summary(r) and "가상로" not in summary(r)
+    assert r.has_pii and r.counts == {"주소": 1} and r.suspected == []
+    assert r.masked_text.strip() == "배송지: [주소1]" and "가상로" not in summary(r)
 
 
 def test_report_never_contains_raw_values(masker):

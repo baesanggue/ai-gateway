@@ -123,8 +123,8 @@ class FakeNer:
 
     onnx_file = "fake"
 
-    def __init__(self, names=(), addresses=()):
-        self.found = [("NAME", n) for n in names] + [("ADDRESS", a) for a in addresses]
+    def __init__(self, names=(), addresses=(), places=()):
+        self.found = [("NAME", n) for n in names] + [("ADDRESS", a) for a in addresses] + [("PLACE", p) for p in places]
         self.texts: list[str] = []
 
     def find(self, text, labels=None):

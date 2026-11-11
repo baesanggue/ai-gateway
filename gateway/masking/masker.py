@@ -17,7 +17,7 @@ from gateway.masking.dictionary import Entry
 from gateway.masking.dictionary import load as load_dictionary
 from gateway.masking.ner import NerModel, Span
 from gateway.masking.ner import load as load_ner
-from gateway.masking.patterns import PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
+from gateway.masking.patterns import ADDRESS, PATTERNS, compat_copy, find_pii, find_pii_compat, is_date, normalize_text
 from gateway.masking.restore import Restored
 from gateway.masking.restore import restore as restore_tokens
 
@@ -68,6 +68,10 @@ TOKEN_SPLIT = re.compile(r"(\[[^\W\d_]+\d+\])")             # [고객1] 모양�
 NAME_PIECE = re.compile(r"[^\W\d_]+(?: [^\W\d_]+)*")       # 이름 조각에서 글자 덩어리만 ("[양미래]" → 양미래, "Kim Mira")
 NAME_KIND = "이름"        # 사전에 없는 이름의 토큰 종류 [이름1]. 사전에 등록된 이름은 사전의 종류([고객1])를 쓴다
 ADDRESS_KIND = "주소"
+# 이름 인식 모델이 장소(PLACE)로 본 곳 중 주소로 가릴 것 (#87): 시·도/시·군·구 다음 동·읍·면·리·가가 오고, 그 뒤에 건물 이름이나
+# 번호가 더 있다("마포구 가상동 예시리더스"). 동에서 끝나는 지역 이름("서울시 마포구 망원동 맛집")은 가리지 않는다
+ADDRESS_LIKE_PLACE = re.compile(r"[가-힣]{1,6}[시도구군]\s{0,3}[가-힣\d]{1,8}?[동읍면리가]\s{0,3}[가-힣A-Za-z\d]")
+_ADDRESS_GAP = re.compile(r"[\s,]*")      # 이 글자만 사이에 있는 두 주소 조각은 한 주소다
 
 
 def _alternation(values: list[str]) -> re.Pattern[str] | None:
@@ -90,6 +94,26 @@ def _kept_chars(masked: str, mapping: dict[str, str]) -> list[bool]:
         else:
             kept += [True] * len(part)
     return kept
+
+
+def _address_values(texts: list[str], spans: list[Span]) -> list[str]:
+    """주소로 가릴 값 (#87): 메시지마다 정규식 주소와 이름 인식 모델이 찾은 주소의 위치를 합친다.
+    겹치거나 공백·쉼표만 사이에 있으면 하나로 본다. 정규식은 번호까지의 끝이 정확하고 모델은 건물 이름·동호수까지 보므로,
+    따로 가리면 한쪽만 가려 나머지("예시리더스 101동")가 그대로 나간다. 위치(spans)는 메시지를 이어 붙인 글 기준이다."""
+    values: list[str] = []
+    offset = 0
+    for text in texts:
+        ranges = [(m.start(), m.end()) for m in ADDRESS.finditer(text)]
+        ranges += [(s.start - offset, s.end - offset) for s in spans if offset <= s.start and s.end <= offset + len(text)]
+        merged: list[tuple[int, int]] = []
+        for a, b in sorted(ranges):
+            if merged and (a <= merged[-1][1] or _ADDRESS_GAP.fullmatch(text[merged[-1][1]:a])):
+                merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+            else:
+                merged.append((a, b))
+        values += [text[a:b].strip(" ,") for a, b in merged]
+        offset += len(text) + 1                      # 이어 붙인 줄바꿈 자리
+    return [v for v in dict.fromkeys(values) if sum(c.isalnum() for c in v) >= 2]
 
 
 def _address_left(texts: list[str], out: list[dict[str, str]], mapping: dict[str, str], addresses: list[Span]) -> bool:
@@ -127,7 +151,9 @@ class RuleMasker:
     - 이름 인식 모델(#53, D23): 요청 전체를 한 번에 읽혀 사람 이름을 찾고, 값 단위로 [이름N]으로 가린다.
       모델은 토큰이 끼기 전의 원문을 본다. 글자 덩어리 두 글자 이상만(사전과 같은 규칙). 사전 값을 품은 이름은 사전보다
       먼저, 나머지는 사전 다음에 가린다(긴 값 먼저와 같은 효과). 이번 요청에서 만든 토큰 안은 어느 단계도 건드리지 않는다
-    - 주소는 가리지 않고 가린 뒤에도 남았는지만 본다(suspected). 주소 경계가 모델마다 달라 반쪽만 가리면 나머지가 그대로 나간다
+    - 주소는 맨 먼저 가린다 (#87, 11/11): 정규식 주소와 모델이 찾은 주소(ADDRESS, 건물 이름이 붙은 PLACE)의 위치를 합쳐
+      한 값으로 [주소N]. 전에는 모델이 찾은 주소를 가리지 않고 남았는지만 봐서(D23), 기본 수준은 지번·아파트 이름 주소를
+      그대로 보냈다. 합친 뒤에도 남은 주소가 있으면(suspected) 엄격 수준은 막는다
     """
 
     available = True
@@ -186,6 +212,8 @@ class RuleMasker:
 
         texts = [normalize_text(msg["content"]) for msg in messages]
         names, addresses = self._find(texts)
+        # 주소를 가장 먼저 가린다 (#87): 정규식 + 모델이 찾은 주소를 합친 값. 이름·사전이 먼저 바꾸면 주소 값이 깨져 못 가린다
+        address_re = _alternation(sorted(_address_values(texts, addresses), key=len, reverse=True))
         # 사전 값을 품은 이름("남궁민수" ⊃ 사전 "민수")은 사전보다 먼저 가린다. 사전이 먼저면 "남궁[고객1]"로 성이 남는다
         first = [n for n in names if self.names is not None and self.names.search(n)]
         first_re = _alternation(first)
@@ -199,8 +227,13 @@ class RuleMasker:
         def dict_token(m: re.Match) -> str:
             return token(self._kind(m.group()), m.group())
 
+        def address_token(m: re.Match) -> str:
+            return token(ADDRESS_KIND, m.group())
+
         out = []
         for msg, text in zip(messages, texts):
+            if address_re is not None:
+                text = _outside(text, mapping, lambda t: address_re.sub(address_token, t))
             if first_re is not None:
                 text = _outside(text, mapping, lambda t: first_re.sub(name_token, t))
             if self.names is not None:
@@ -228,13 +261,14 @@ class RuleMasker:
         - 바로 붙은 이름 조각은 합친다(모델이 "양|미래"로 두 번 시작해도 성까지 가린다)
         - 이름 조각에서 글자 덩어리만 쓴다: 괄호·숫자·문장부호를 떼고("[양미래]" → 양미래), 두 글자 이상만.
           한 글자는 가리지 않는다(사전과 같은 규칙). 한 음절로는 사람을 알 수 없고, 값 단위로 가리면 그 글자가 어디서나 사라진다
-        - 주소는 위치째로 둔다(괄호가 있어도). 가린 뒤 남았는지 볼 때만 쓴다 (_address_left)
+        - 주소는 위치째로 둔다(괄호가 있어도). 모델이 ADDRESS로 본 곳과, PLACE로 본 곳 중 동·읍·면 뒤에 건물 이름·번호가
+          더 있는 곳(ADDRESS_LIKE_PLACE)이 주소다 (#87). 정규식 주소와 합쳐 가리고(_address_values), 가린 뒤 남았는지도 본다
         긴 이름부터 (같은 위치에서 "김민수진"이 "김민수"보다 먼저)."""
         if self.ner is None:
             return [], []
         joined = "\n".join(texts)
         spans: list[Span] = []
-        for s in self.ner.find(joined, {"NAME", "ADDRESS"}):
+        for s in self.ner.find(joined, {"NAME", "ADDRESS", "PLACE"}):
             if spans and s.label == "NAME" == spans[-1].label and spans[-1].end == s.start:
                 p = spans[-1]
                 spans[-1] = Span("NAME", p.start, s.end, joined[p.start:s.end], p.score)
@@ -242,7 +276,8 @@ class RuleMasker:
                 spans.append(s)
         names = [p for s in spans if s.label == "NAME" for p in NAME_PIECE.findall(s.text)
                  if len(p) >= 2 and p.casefold() not in self.not_names]
-        addresses = [s for s in spans if s.label == "ADDRESS" and sum(c.isalnum() for c in s.text) >= 2]
+        addresses = [s for s in spans if sum(c.isalnum() for c in s.text) >= 2 and
+                     (s.label == "ADDRESS" or (s.label == "PLACE" and ADDRESS_LIKE_PLACE.search(s.text)))]
         return sorted(dict.fromkeys(names), key=len, reverse=True), addresses
 
     def _kind(self, matched: str) -> str:

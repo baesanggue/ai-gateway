@@ -30,6 +30,10 @@ from gateway.masking.patterns import find_pii
     ("세종시 한누리대로 2130", ["주소"]),                  # 구·군 없는 큰 시
     ("서울시 세종대로 110", ["주소"]),
     ("수원시 팔달구 예시로 7", ["주소"]),
+    ("경기도 수원시 팔달구 예시동 123-4", ["주소"]),         # 지번 주소 (#87)
+    ("서울특별시 마포구 가상동 12번지", ["주소"]),
+    ("충청남도 예시군 가상면 예시리 45", ["주소"]),          # 읍·면 + 리
+    ("서울시 종로구 종로1가 3", ["주소"]),                   # 동 대신 가
     ("2012-34-56", ["계좌번호"]),                          # 34월은 날짜가 아니다
 ])
 def test_detects_structured_pii(text, kinds):
@@ -65,9 +69,9 @@ def test_known_limitation_address_starting_at_district():
 # ids를 주지 않으면 pytest가 10만 자 입력을 테스트 이름에 넣고, 그 이름을 환경변수 PYTEST_CURRENT_TEST에
 # 기록하다가 Windows 한도(32,767자)를 넘어 뒤 테스트들이 오류 난다
 @pytest.mark.parametrize("text", ["시구" * 25000, "시구로" * 20000, "시도구군로길" * 10000, "a" * 100000,
-                                  "1" * 100000, "a@" * 50000, "12-" * 30000],
+                                  "1" * 100000, "a@" * 50000, "12-" * 30000, "시구동" * 20000, "시구읍면동리가1" * 10000],
                          ids=["address-anchors", "address-anchors-road", "all-anchors", "letters", "digits",
-                              "at-signs", "hyphen-digits"])
+                              "at-signs", "hyphen-digits", "address-anchors-lot", "lot-anchors"])
 def test_long_adversarial_input_finishes_quickly(text):
     """고치기 전에는 공백 없는 '시구' 2천 자에서도 100초 안에 끝나지 않았다 (되짚기 폭증).
     지금은 길이에 비례해 5만~10만 자가 1초 안쪽이다. 폭증을 잡는 게 목적이라 기준을 넉넉히 2초로 둔다."""

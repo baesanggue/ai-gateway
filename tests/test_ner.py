@@ -72,6 +72,23 @@ def test_finds_address_the_regex_misses(model):
 
 
 @needs_model
+@pytest.mark.parametrize("text, masked", [
+    ("주소가 서울특별시 마포구 가상동 예시리더스 인지 확인해줘", "주소가 [주소1] 인지 확인해줘"),     # 11/10 사고 모양 (#87)
+    ("서울특별시 마포구 가상동 예시아파트 101동 1001호로 보내줘", "[주소1]로 보내줘"),
+    ("마포구 가상동 예시리더스로 배송해 주세요", "[주소1]로 배송해 주세요"),
+    ("제주도 서귀포시 가상읍 예시리 123번지", "[주소1]"),
+    ("서울특별시 구로구 가상로 12 예시리더스 101동으로 보내줘", "[주소1]으로 보내줘"),
+    ("서울시 마포구 망원동 맛집 추천해줘", "서울시 마포구 망원동 맛집 추천해줘"),                  # 지역 이름은 그대로
+    ("다음 주에 마포구청에서 설명회가 있다", "다음 주에 마포구청에서 설명회가 있다"),
+], ids=["sido-dong-building", "apartment-unit", "no-sido", "lot-number", "road-plus-building", "region", "office"])
+def test_real_model_addresses_are_masked_but_region_names_are_not(model, text, masked):
+    """실제 모델로 (#87): 지번·건물 이름 주소는 [주소1]로, 동에서 끝나는 지역 이름과 기관 이름은 그대로."""
+    from gateway.masking.masker import RuleMasker
+    r = RuleMasker([], ner=model).mask([{"role": "user", "content": text}])
+    assert r.messages[0]["content"] == masked and r.suspected == []
+
+
+@needs_model
 def test_long_text_is_read_to_the_end_in_overlapping_batched_windows(model):
     """구간 여러 묶음(BATCH개 넘게)을 넘는 글도 끝까지 본다. 마지막 묶음은 짧은 구간을 채워서 계산한다."""
     text = "주문 내역을 정리해 주세요. " * 400 + "마지막으로 남궁민 고객에게 안내해 주세요."
