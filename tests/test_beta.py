@@ -81,4 +81,6 @@ def test_tunnel_header_is_trusted_only_for_loopback_connections():
     assert client_key("::1", "203.0.113.9") == "cf:203.0.113.9"
     assert client_key("198.51.100.4", "203.0.113.9") == "198.51.100.4"      # 꾸민 머리글
     assert client_key("127.0.0.1", None) == "127.0.0.1"
-    assert client_key(None, "203.0.113.9") == "unknown"
+    # Streamlit은 루프백 연결의 주소를 None으로 준다. 터널로 온 요청이 이 경우다 (모두 한 키로 묶이면 한 사람이 모두를 잠근다)
+    assert client_key(None, "203.0.113.9") == "cf:203.0.113.9"
+    assert client_key(None, "not-an-ip") == "local" and client_key(None, None) == "local"

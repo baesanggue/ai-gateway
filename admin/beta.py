@@ -117,13 +117,18 @@ def _client() -> str:
 
 
 def client_key(socket_ip: str | None, forwarded: str | None) -> str:
+    """Streamlit은 루프백 연결(127.0.0.1, ::1)의 주소를 None으로 준다(st.context.ip_address). 터널은 이 PC에서 루프백으로
+    들어오므로 None도 루프백으로 본다. 그때만, 그리고 IP 주소 모양일 때만 터널 머리글을 쓴다 (11/11 보안 검토 두 번)."""
     try:
-        loopback = socket_ip is not None and ipaddress.ip_address(socket_ip).is_loopback
+        loopback = socket_ip is None or ipaddress.ip_address(socket_ip).is_loopback
     except ValueError:
         loopback = False
     if loopback and forwarded:
-        return f"cf:{forwarded.strip()}"
-    return socket_ip or "unknown"
+        try:
+            return f"cf:{ipaddress.ip_address(forwarded.strip())}"
+        except ValueError:
+            pass
+    return socket_ip or "local"
 
 
 def gate(s) -> None:
