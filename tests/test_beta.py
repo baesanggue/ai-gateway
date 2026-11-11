@@ -46,3 +46,29 @@ def test_beta_password_is_read_but_never_printed(tmp_path):
     assert s.config.beta.per_session == 30 and s.config.beta.per_day == 500
     for text in (repr(s), str(s), s.model_dump_json()):
         assert "beta-secret-777" not in text
+
+
+def test_login_guard_counts_failures_across_sessions_per_client_and_globally():
+    """세션마다 세면 새로고침으로 끝없이 시도할 수 있다 (11/11 보안 검토). 서버가 주소별·전체로 센다."""
+    from admin.beta import LoginGuard
+    g = LoginGuard(per_client=3, global_max=5, window=600, lock=600)
+    for _ in range(3):
+        g.fail("1.1.1.1", now=100)
+    assert g.locked("1.1.1.1", now=101) and not g.locked("2.2.2.2", now=101)   # 그 주소만 막힘
+    assert not g.locked("1.1.1.1", now=701)                                     # 시간이 지나면 풀림
+    for ip in ("3.3.3.3", "4.4.4.4"):                                           # 전체 5번째 → 모두 막힘
+        g.fail(ip, now=200)
+    assert g.locked("9.9.9.9", now=201)
+
+
+def test_login_guard_forgets_old_failures_and_success_resets_client():
+    from admin.beta import LoginGuard
+    g = LoginGuard(per_client=3, global_max=100, window=60, lock=600)
+    g.fail("1.1.1.1", now=0)
+    g.fail("1.1.1.1", now=10)
+    g.fail("1.1.1.1", now=100)                    # 앞의 둘은 60초 창 밖
+    assert not g.locked("1.1.1.1", now=101)
+    g.fail("1.1.1.1", now=102)
+    g.succeed("1.1.1.1")
+    g.fail("1.1.1.1", now=103)
+    assert not g.locked("1.1.1.1", now=104)

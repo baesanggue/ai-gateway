@@ -14,8 +14,11 @@ from datetime import date, datetime
 
 import streamlit as st
 
-MAX_TRIES = 5                  # 세션당 비밀번호 시도. 넘으면 LOCK_SECONDS 동안 받지 않는다
-LOCK_SECONDS = 300
+# 비밀번호 틀림 (11/11 보안 검토): 세션마다 세면 새로고침으로 끝없이 시도할 수 있어 서버에서 센다
+PER_CLIENT_FAILS = 5           # 접속 주소 하나가 WINDOW 안에 이만큼 틀리면 그 주소를 LOCK 동안 막는다
+GLOBAL_FAILS = 50              # 모든 주소를 합쳐 WINDOW 안에 이만큼 틀리면 모두 LOCK 동안 막는다 (주소를 바꿔 가며 시도할 때)
+WINDOW = 600
+LOCK = 600
 
 GUIDE = """**체험판입니다.** 이름·전화번호·주소는 **가상의 값만** 쓰세요. 입력한 글은 운영자 PC를 거치고, 개인정보는 가려서
 외부 AI로 보냅니다. 시나리오 밖의 요청은 거부되거나, 가리지 못한 정보가 나갈 수 있습니다.
@@ -49,6 +52,40 @@ class Quota:
             return True
 
 
+class LoginGuard:
+    """비밀번호 틀림을 모든 세션에 걸쳐 센다: 접속 주소별, 그리고 전체."""
+
+    def __init__(self, per_client: int = PER_CLIENT_FAILS, global_max: int = GLOBAL_FAILS,
+                 window: float = WINDOW, lock: float = LOCK):
+        self.per_client, self.global_max, self.window, self.lock = per_client, global_max, window, lock
+        self._fails: dict[str, list[float]] = {}
+        self._all: list[float] = []
+        self._locked_until: dict[str, float] = {}       # 주소별. "*"는 모두
+        self._lock = threading.Lock()
+
+    def locked(self, client: str, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        with self._lock:
+            return any(self._locked_until.get(k, 0) > now for k in (client, "*"))
+
+    def fail(self, client: str, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with self._lock:
+            recent = [t for t in self._fails.get(client, []) if now - t < self.window] + [now]
+            self._fails[client] = recent
+            self._all = [t for t in self._all if now - t < self.window] + [now]
+            if len(recent) >= self.per_client:
+                self._locked_until[client] = now + self.lock
+                self._fails[client] = []
+            if len(self._all) >= self.global_max:
+                self._locked_until["*"] = now + self.lock
+                self._all = []
+
+    def succeed(self, client: str) -> None:
+        with self._lock:
+            self._fails.pop(client, None)
+
+
 def password_ok(given: str, secret: str) -> bool:
     """상수 시간 비교 (몇 글자까지 맞았는지 시간으로 드러나지 않게)."""
     return bool(secret) and hmac.compare_digest(given.encode("utf-8"), secret.encode("utf-8"))
@@ -66,6 +103,17 @@ def _quota(per_day: int) -> Quota:
     return Quota(per_day)
 
 
+@st.cache_resource
+def _guard() -> LoginGuard:
+    return LoginGuard()
+
+
+def _client() -> str:
+    """접속한 쪽의 주소. 화면은 127.0.0.1에서만 열리고 인터넷 요청은 Cloudflare 터널을 거쳐 오므로, 터널이 붙이는
+    CF-Connecting-IP를 쓴다. 없으면(이 PC에서 직접 연 경우) 소켓 주소."""
+    return st.context.headers.get("Cf-Connecting-Ip") or st.context.ip_address or "unknown"
+
+
 def gate(s) -> None:
     """체험판이면 비밀번호를 받는다. 통과하지 않으면 여기서 멈춘다(메뉴도 그리지 않는다)."""
     if not enabled(s) or st.session_state.get("beta_ok"):
@@ -74,24 +122,22 @@ def gate(s) -> None:
     st.markdown("<div style='height:2.2rem'></div>", unsafe_allow_html=True)   # 메뉴가 없는 화면이라 위 막대에 제목이 가린다
     page_header("가림게이트 체험판", "API 주소만 바꾸면 개인정보는 가려서 보내고 답변은 내 PC에서 되돌리는 게이트웨이의 체험판입니다. "
                                  "설문 안내 메시지에 있는 비밀번호를 넣어 주세요.")
-    locked = st.session_state.get("beta_locked_until", 0) > time.time()
+    guard, client = _guard(), _client()
     box, _ = st.columns([1, 1.6])
     with box, st.form("beta_login", border=True):
-        given = st.text_input("비밀번호", type="password", disabled=locked)
-        sent = st.form_submit_button("들어가기", type="primary", disabled=locked)
-    if locked:
-        st.error("비밀번호를 여러 번 틀렸습니다. 5분 뒤에 다시 시도해 주세요.")
-    elif sent:
-        if password_ok(given, s.secrets.beta_password.get_secret_value()):
+        given = st.text_input("비밀번호", type="password")
+        sent = st.form_submit_button("들어가기", type="primary")
+    if sent:
+        if guard.locked(client):                                  # 막혀 있으면 맞는지 보지도 않는다
+            st.error("비밀번호를 여러 번 틀린 시도가 있어 잠시 막았습니다. 10분 뒤에 다시 시도해 주세요.")
+        elif password_ok(given, s.secrets.beta_password.get_secret_value()):
+            guard.succeed(client)
             st.session_state.beta_ok = True
             st.rerun()
-        time.sleep(1)                                         # 하나씩 맞혀 보기를 늦춘다
-        tries = st.session_state.get("beta_tries", 0) + 1
-        st.session_state.beta_tries = tries
-        if tries >= MAX_TRIES:
-            st.session_state.beta_locked_until = time.time() + LOCK_SECONDS
-            st.session_state.beta_tries = 0
-        st.error("비밀번호가 맞지 않습니다.")
+        else:
+            guard.fail(client)
+            time.sleep(1)                                         # 하나씩 맞혀 보기를 늦춘다
+            st.error("비밀번호가 맞지 않습니다.")
     st.stop()
 
 
