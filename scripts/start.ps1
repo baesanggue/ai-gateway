@@ -66,6 +66,14 @@ if ($Beta) {
         Write-Host ".env에 BETA_PASSWORD가 없어 체험판을 열지 않습니다 (docs/beta.md)." -ForegroundColor Red
         exit 1
     }
+    # 터널 프로그램은 서버를 켜기 전에 확인한다 (없으면 서버만 켜지고 멈춘다)
+    $cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+    if (-not $cloudflared -and (Test-Path (Join-Path $State "bin\cloudflared.exe"))) { $cloudflared = Join-Path $State "bin\cloudflared.exe" }
+    if (-not $cloudflared) {
+        Write-Host "터널 프로그램 cloudflared가 없습니다. 먼저 받으세요:" -ForegroundColor Red
+        Write-Host "  powershell -ExecutionPolicy Bypass -File scripts\get-cloudflared.ps1"
+        exit 1
+    }
     if (Test-Port $ScreenPort) {
         Write-Host "화면이 이미 켜져 있어 체험판 설정으로 켜졌는지 알 수 없습니다. stop.ps1로 끄고 다시 실행하세요." -ForegroundColor Red
         exit 1
@@ -94,7 +102,6 @@ if (-not $NoWindow) {
 }
 
 if ($Beta) {
-    $cloudflared = Find-Exe "cloudflared" (Join-Path $State "bin\cloudflared.exe")
     $tlog = Join-Path $LogDir "tunnel.err.log"
     Remove-Item $tlog -ErrorAction SilentlyContinue
     $t = Start-Process -FilePath $cloudflared -ArgumentList @("tunnel", "--url", "http://localhost:$ScreenPort", "--no-autoupdate") `
