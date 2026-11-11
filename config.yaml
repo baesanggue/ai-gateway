@@ -125,3 +125,9 @@ masking:
 # 요청 로그 (가명화된 텍스트만 저장)
 storage:
   sqlite_path: data/gateway.db
+
+# 웹 체험판 (#90, 11/11): .env에 BETA_PASSWORD가 있으면 화면이 체험판으로 켜진다
+# 테스터는 내가 보낸 요청만 보고, 설정은 보기만 한다. 아래는 API 비용을 묶는 사용량 상한
+beta:
+  per_session: 30   # 한 사람(브라우저 세션)
+  per_day: 500      # 하루 전체 (요청 한 번 평균 $0.0001~0.001)

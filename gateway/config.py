@@ -158,6 +158,12 @@ class StorageConfig(BaseModel):
     sqlite_path: str
 
 
+class BetaConfig(BaseModel):
+    """웹 체험판 (#90, 11/11): .env에 BETA_PASSWORD가 있으면 화면이 체험판으로 켜진다. API 비용을 묶는 사용량 상한."""
+    per_session: int = 30        # 한 사람(브라우저 세션)이 보낼 수 있는 요청 수
+    per_day: int = 500           # 하루(이 PC 날짜) 전체 요청 수. 넘으면 다음 날까지 받지 않는다
+
+
 class AppConfig(BaseModel):
     preset: str | None = None        # 업종 프리셋 이름 (config/presets/<이름>.yaml, D22)
     security_level: Literal["basic", "strict", "local"] = "basic"
@@ -168,6 +174,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig
     masking: MaskingConfig
     storage: StorageConfig
+    beta: BetaConfig = BetaConfig()
 
 
 class Secrets(BaseSettings):
@@ -179,6 +186,8 @@ class Secrets(BaseSettings):
     xai_api_key: SecretStr | None = None
     # 게이트웨이를 쓰는 서비스에 나눠 줄 키(쉼표로 여러 개). 없으면 같은 PC에서 온 요청만 받는다 (D20)
     gateway_api_keys: SecretStr | None = None
+    # 웹 체험판 공용 비밀번호 (#90). 있으면 화면이 체험판으로 켜진다(비밀번호·내 요청만·설정 보기만·사용량 제한)
+    beta_password: SecretStr | None = None
 
 
 class Settings(BaseModel):

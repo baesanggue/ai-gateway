@@ -6,6 +6,8 @@ toolbarMode = "minimal"
 gatherUsageStats = false
 
 [server]
+# 파일 검사는 10MB까지(gateway/files/extract.py). 화면 서버도 더 큰 파일은 받지 않는다 (체험판에서 인터넷에 열 때, #90)
+maxUploadSize = 10
 headless = true
 # 이 PC에서만 연다 (D20과 같은 원칙). 기본값은 모든 주소라 같은 네트워크의 다른 PC가 시연 화면으로
 # 게이트웨이를 불러 API 비용을 쓰거나 요청 로그를 볼 수 있다 (보안 검토)
