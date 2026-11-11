@@ -189,8 +189,8 @@ def test_dictionary_values_in_compat_only_forms_are_reported():
 
 # ── 사전에 없는 이름: 이름 인식 모델 (#53, D23) ───────────────
 
-def ner_mask(*contents, names=(), addresses=()):
-    ner = FakeNer(names, addresses)
+def ner_mask(*contents, names=(), addresses=(), places=()):
+    ner = FakeNer(names, addresses, places)
     masker = RuleMasker(ENTRIES, ner=ner)
     return masker, ner, masker.mask([{"role": "user", "content": c} for c in contents])
 
@@ -236,12 +236,52 @@ def test_longer_name_first_and_latin_case_ignored():
     assert r.mapping["[이름1]"] == "남궁민수"
 
 
-def test_address_the_regex_missed_is_reported_as_suspected():
-    """주소는 가리지 않고 가린 뒤에도 남았는지만 본다. 정규식이 가린 주소는 남지 않는다."""
-    _, _, missed = ner_mask("배송지를 마포구 가상로 123으로 바꿔 주세요", addresses=["마포구 가상로 123"])
-    assert missed.suspected == ["주소"] and missed.counts == {}
+def test_address_the_regex_missed_is_masked_by_the_model_span():
+    """정규식이 못 맞춘 주소(시·도 없이 쓴 주소)도 모델이 찾으면 가린다 (#87). 전에는 남았는지만 보고 기본 수준은 보냈다."""
+    masker, _, missed = ner_mask("배송지를 마포구 가상로 123으로 바꿔 주세요", addresses=["마포구 가상로 123"])
+    assert missed.messages[0]["content"] == "배송지를 [주소1]으로 바꿔 주세요"
+    assert missed.counts == {"주소": 1} and missed.suspected == []
+    # 복원은 조사를 원래 값의 받침에 맞춘다 (123 → "으로")
+    assert masker.restore("[주소1]로 변경했습니다", missed.mapping).text == "마포구 가상로 123으로 변경했습니다"
     _, _, caught = ner_mask("배송지를 서울시 마포구 가상로 123으로 바꿔 주세요", addresses=["서울시 마포구 가상로 123"])
     assert caught.suspected == [] and caught.counts == {"주소": 1}
+
+
+@pytest.mark.parametrize("text, place", [
+    ("주소가 서울특별시 마포구 가상동 예시리더스 인지 확인해줘", "서울특별시 마포구 가상동 예시리더스"),   # 11/10 사고와 같은 모양
+    ("마포구 가상동 예시리더스로 배송해 주세요", "마포구 가상동 예시리더스"),                              # 시·도 없음
+    ("서울 강남구 역삼동 예시타워 15층 회의실", "서울 강남구 역삼동 예시타워"),
+], ids=["sido-dong-building", "gu-dong-building", "office-building"])
+def test_place_with_a_building_after_the_dong_is_masked_as_address(text, place):
+    """모델이 PLACE로 본 곳도 동·읍·면 뒤에 건물 이름이 있으면 주소로 가린다 (#87)."""
+    _, _, r = ner_mask(text, places=[place])
+    assert place not in r.messages[0]["content"] and r.mapping == {"[주소1]": place}
+
+
+@pytest.mark.parametrize("text, place", [
+    ("서울시 마포구 망원동 맛집 추천해줘", "서울시 마포구 망원동"),      # 동에서 끝나는 지역 이름
+    ("다음 주 마포구에서 설명회", "마포구"),
+    ("강남역 근처 카페", "강남역"),
+], ids=["region-ends-at-dong", "district-only", "station"])
+def test_region_names_are_not_masked(text, place):
+    """지역 이름은 가리지 않는다. 가리면 "망원동 맛집 추천" 같은 요청에 답할 수 없다."""
+    _, _, r = ner_mask(text, places=[place])
+    assert r.messages[0]["content"] == text and r.counts == {}
+
+
+def test_regex_address_and_model_building_part_become_one_token():
+    """정규식은 번호까지, 모델은 뒤의 건물 이름·동까지 찾는다. 따로 가리면 "예시리더스 101동"이 그대로 나간다.
+    공백·쉼표만 사이에 있으면 한 주소로 합친다 (#87)."""
+    _, _, r = ner_mask("서울특별시 구로구 가상로 12 예시리더스 101동으로 보내줘",
+                       addresses=["서울특별시 구로구 가상로 12", "예시리더스 101동"])
+    assert r.messages[0]["content"] == "[주소1]으로 보내줘"
+    assert r.mapping == {"[주소1]": "서울특별시 구로구 가상로 12 예시리더스 101동"}
+
+
+def test_lot_number_address_is_masked_by_regex_without_the_model():
+    """지번 주소는 모델 없이 정규식으로도 가린다 (#87)."""
+    r = RuleMasker([]).mask([{"role": "user", "content": "주소는 경기도 수원시 팔달구 예시동 123-4입니다"}])
+    assert r.messages[0]["content"] == "주소는 [주소1]입니다"
 
 
 def test_name_with_brackets_or_digits_attached_is_still_masked():
@@ -264,28 +304,38 @@ def test_name_containing_a_dictionary_value_is_masked_whole():
     assert r.messages[0]["content"] == "[이름1] 고객과 [고객1] 고객"
 
 
-def test_address_partly_changed_by_masking_is_still_suspected():
-    """사전 값("가상")이 주소 안에 있으면 주소 글자가 그대로 남지 않는다. 글자마다 토큰으로 바뀌었는지 맞춰 보면
-    주소 글자 9개 중 7개가 남았다 → 남은 주소 (11/07 보안 검토). 모델은 한 번만 읽는다."""
+def test_address_containing_a_dictionary_value_is_masked_whole():
+    """사전 값("가상")이 주소 안에 있어도 주소를 먼저 가려 "마포구 [사내1]로 123"처럼 반쪽만 가리지 않는다 (#87).
+    전에는 사전이 먼저 바꿔 주소가 깨지고, 남은 주소로 의심만 했다 (11/07 보안 검토). 모델은 한 번만 읽는다."""
     ner = FakeNer(addresses=["마포구 가상로 123"])
     r = RuleMasker([Entry("사내", "가상")], ner=ner).mask([{"role": "user", "content": "마포구 가상로 123으로 보내 줘"}])
-    assert r.messages[0]["content"] == "마포구 [사내1]로 123으로 보내 줘" and r.suspected == ["주소"]
+    assert r.messages[0]["content"] == "[주소1]으로 보내 줘" and r.suspected == []
     assert len(ner.texts) == 1
 
 
-def test_floor_left_after_regex_masked_the_address_is_not_suspected():
-    """정규식이 시·도~번호를 가리고 층만 남으면(주소 글자 15개 중 2개) 남은 주소로 보지 않는다. 엄격 수준이 정상 요청을 막지 않게."""
+def test_floor_found_with_the_address_is_masked_together():
+    """모델이 층까지 주소로 보면 정규식 주소(시·도~번호)와 합쳐 한 토큰으로 가린다."""
     ner = FakeNer(addresses=["성남시 분당구 가상로 45 3층"])
     r = RuleMasker([], ner=ner).mask([{"role": "user", "content": "성남시 분당구 가상로 45 3층으로 방문해 주세요"}])
-    assert r.messages[0]["content"] == "[주소1] 3층으로 방문해 주세요" and r.suspected == []
+    assert r.messages[0]["content"] == "[주소1]으로 방문해 주세요" and r.suspected == []
 
 
 def test_address_in_a_later_message_is_located_across_messages():
-    """주소 위치는 메시지를 이어 붙인 글 기준이다. 앞 메시지에 토큰이 있어도 뒤 메시지의 주소 자리를 맞게 찾는다."""
+    """주소 위치는 메시지를 이어 붙인 글 기준이다. 앞 메시지가 있어도 뒤 메시지의 주소 자리를 맞게 찾아 가린다."""
     ner = FakeNer(names=["양미래"], addresses=["마포구 가상로 123"])
     r = RuleMasker(ENTRIES, ner=ner).mask([{"role": "user", "content": "김민수·양미래 고객 010-1234-5678"},
                                           {"role": "user", "content": "배송지는 마포구 가상로 123"}])
-    assert r.suspected == ["주소"]
+    assert r.messages[1]["content"] == "배송지는 [주소1]" and r.suspected == []
+
+
+def test_address_left_after_masking_is_still_suspected():
+    """합쳐 가린 뒤에도 원문과 자리를 맞출 수 없으면 남은 주소로 본다(막는 쪽). 안전장치는 그대로 둔다."""
+    from gateway.masking.masker import _address_left
+    from gateway.masking.ner import Span
+    text = "배송지는 마포구 가상로 123"
+    span = Span("ADDRESS", 5, 15, "마포구 가상로 123", 0.9)
+    assert _address_left([text], [{"content": text}], {}, [span])                        # 그대로 남음
+    assert not _address_left([text], [{"content": "배송지는 [주소1]"}], {"[주소1]": "마포구 가상로 123"}, [span])
 
 
 def test_business_words_listed_in_the_preset_are_not_masked_as_names():

@@ -208,29 +208,19 @@ def test_unregistered_name_is_masked_and_restored_in_every_level(tmp_path, monke
     assert list(local["questions"]) == ["is_confidential"]               # 남은 개인정보는 판단 모델에 묻지 않는다
 
 
-def test_strict_blocks_address_the_masking_missed_before_any_call(tmp_path, monkeypatch):
-    """시·도 없이 쓴 주소는 정규식이 못 가린다. 엄격 수준은 판단 엔진도 부르기 전에 막고, 로그에 문장을 남기지 않는다."""
+@pytest.mark.parametrize("level", ["basic", "strict"])
+def test_address_the_regex_missed_is_masked_before_anything_goes_out(tmp_path, monkeypatch, level):
+    """시·도 없이 쓴 주소는 정규식이 못 가린다. 이름 인식 모델이 찾은 주소를 [주소1]로 가려 보낸다 (#87).
+    전에는 의심만 해서 기본 수준은 원문 주소를 보내고(로그에서만 뺌), 엄격 수준은 막았다. 이제 어느 수준도 원문이 나가지 않는다."""
     with_ner(monkeypatch, addresses=["마포구 가상로 123"])
     up = FakeUpstream()
-    with gateway(tmp_path, up, level="strict") as (client, log):
+    with gateway(tmp_path, up, level=level) as (client, log):
         r = ask(client, "배송지를 마포구 가상로 123으로 바꿔 주세요")
         row = log.get(r.headers["x-gateway-request-id"])
         stored = db_bytes(log)
-    assert (row["route"], row["reasons"]) == ("block", ["pii_residual"])
-    assert "시·도부터" in r.json()["choices"][0]["message"]["content"]
-    assert up.requests == [] and row["text_masked"] is None
-    assert "가상로".encode() not in stored
-
-
-def test_basic_sends_suspected_address_but_keeps_it_out_of_the_log(tmp_path, monkeypatch):
-    """기본 수준은 막지 않는다(정규식만으로 가리던 예전과 같다). 다만 로그에는 문장을 남기지 않는다 (설계 결정 2번)."""
-    with_ner(monkeypatch, addresses=["마포구 가상로 123"])
-    up = FakeUpstream()
-    with gateway(tmp_path, up) as (client, log):
-        r = ask(client, "배송지를 마포구 가상로 123으로 바꿔 주세요")
-        row = log.get(r.headers["x-gateway-request-id"])
-        stored = db_bytes(log)
-    assert row["route"] == "cheap" and row["text_masked"] is None
+    assert row["route"] == "cheap" and row["text_masked"] == "배송지를 [주소1]으로 바꿔 주세요"
+    assert row["pii_counts"] == {"주소": 1}
+    assert up.requests and all("가상로".encode() not in req.content for req in up.requests)
     assert "가상로".encode() not in stored
 
 
