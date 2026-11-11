@@ -8,6 +8,7 @@ import html
 import httpx
 import streamlit as st
 
+from admin import beta
 from admin.ui import gateway_url, page_header, settings
 
 TYPES = ["pdf", "docx", "xlsx", "txt", "csv"]
@@ -17,6 +18,8 @@ def page() -> None:
     s = settings()
     page_header("파일 검사", "PDF·워드·엑셀·텍스트 파일 속 개인정보를 찾습니다. 파일은 이 PC 밖으로 나가지 않습니다. "
                          "외부 AI에는 아래 가명화된 텍스트를 쓰세요.")
+    if beta.enabled(s):                       # 웹 체험판 (#90)
+        st.info("체험판: 가상의 정보가 든 파일만 올려 주세요. 파일은 운영자 PC에서 검사하고 저장하지 않습니다.")
     upload = st.file_uploader("검사할 파일 (10MB까지)", type=TYPES)
     if upload is None:
         return

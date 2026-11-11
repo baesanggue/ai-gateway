@@ -13,6 +13,7 @@ from pathlib import Path
 import streamlit as st
 from openai import OpenAI, OpenAIError
 
+from admin import beta
 from admin.flow import outbound_text, session_totals
 from admin.ui import ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
@@ -92,9 +93,20 @@ def _panels(row: dict | None, turn: dict) -> str:
 
 
 def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
-    st.markdown("<div class='gw-label'>게이트웨이 처리 과정</div>", unsafe_allow_html=True)
+    is_beta = beta.enabled(s)
+    if is_beta and turns:                     # 체험판 (#90): 보낸 뒤에는 안내를 작은 창으로 (화면을 밀지 않게)
+        label, more = st.columns([3, 2], vertical_alignment="center")
+        label.markdown("<div class='gw-label'>게이트웨이 처리 과정</div>", unsafe_allow_html=True)
+        with more.popover(f"안내 · 남은 {beta.remaining(s)}회", width="stretch"):
+            st.markdown(beta.GUIDE)
+    else:
+        st.markdown("<div class='gw-label'>게이트웨이 처리 과정</div>", unsafe_allow_html=True)
     if not turns:
-        st.markdown("<div class='gw-hint'>요청을 보내면 단계별로 무엇을 했는지 여기에 나옵니다.</div>", unsafe_allow_html=True)
+        if is_beta:                           # 처음에는 비어 있는 이 칸에 안내를 둔다 (위에 두면 화면이 스크롤된다)
+            with st.container(height=330, border=True, key="beta_guide"):
+                st.markdown(beta.GUIDE)
+        else:
+            st.markdown("<div class='gw-hint'>요청을 보내면 단계별로 무엇을 했는지 여기에 나옵니다.</div>", unsafe_allow_html=True)
         return
     labels = [f"[{i}] {t['user'][:30]}" for i, t in enumerate(turns, 1)]
     sel = st.selectbox("요청", range(len(turns)), index=st.session_state.selected,
@@ -116,19 +128,25 @@ def page() -> None:
     log = RequestLog.from_config(s.config.storage)
     rows = [log.get(t["request_id"]) if t["request_id"] else None for t in turns]
 
+    if (notice := st.session_state.pop("beta_notice", None)) is not None:   # 체험판 사용량 안내 (#90)
+        st.warning(notice)
     st.markdown(_metrics([r for r in rows if r]), unsafe_allow_html=True)
     left, right = st.columns([1.1, 1], gap="medium")
     with left:
         st.markdown("<div class='gw-label'>챗봇 (기존 서비스)</div>", unsafe_allow_html=True)
         st.markdown(_terminal(turns), unsafe_allow_html=True)
-        with st.form("cli", clear_on_submit=True, border=False):
+        with st.container(key="cli_box"), st.form("cli", clear_on_submit=True, border=False):   # 터미널 모양은 이 칸에만 (ui.CSS)
             prompt, field, button = st.columns([0.3, 4, 1.5], vertical_alignment="center", gap="small")
             prompt.markdown("<div class='gw-prompt'>›</div>", unsafe_allow_html=True)
             text = field.text_input("메시지", placeholder="여기에 입력하고 Enter", label_visibility="collapsed")
             sent = button.form_submit_button("보내기", type="primary", width="stretch")
         if sent and text.strip():
-            with st.spinner("게이트웨이가 처리하는 중"):
-                _send(s, text.strip())
+            if (refused := beta.allow_request(s)) is not None:      # 체험판 사용량 (#90)
+                st.session_state.beta_notice = refused
+            else:
+                with st.spinner("게이트웨이가 처리하는 중"):
+                    _send(s, text.strip())
+                beta.remember(st.session_state.turns[-1]["request_id"])
             st.rerun()
     with right:
         _process(s, turns, rows)
