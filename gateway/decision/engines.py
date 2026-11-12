@@ -124,6 +124,17 @@ class SystemOneEngine(_HttpEngine):
                  transport: httpx.BaseTransport | None = None):
         super().__init__(base_url, model, timeout, api_key, transport)
 
+    def preload(self, keep_alive: str) -> str:
+        """판단 모델을 미리 올린다 (Ollaya 전용, #84). 공식 문서(docs/api.md §7.3): state·questions 없이 model과 keep_alive만
+        보내면 판단하지 않고 모델을 올리거나 내린다. 응답의 done_reason("load")을 돌려준다."""
+        try:
+            r = self._client.post("/api/decide", json={"model": self.model, "keep_alive": keep_alive},
+                                  timeout=120)                      # 올리는 데 수십 초 걸릴 수 있다 (판단 시간 제한과 따로)
+            r.raise_for_status()
+            return str(r.json().get("done_reason", ""))
+        except (httpx.HTTPError, ValueError) as e:
+            raise DecisionError(f"{type(self).__name__}: 판단 모델을 미리 올리지 못함 ({type(e).__name__})") from e
+
     def _body(self, text, questions):
         return {"model": self.model, "state": text, "questions": systemone_questions(questions)}
 

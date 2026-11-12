@@ -36,6 +36,9 @@ decision:
   # 파일이 없으면 게이트웨이를 시작하지 않는다. 위험·인젝션 판단은 등록한 지시문도 본다
   trusted_system_prompts: []
   local_cache_size: 2048
+  # 게이트웨이가 켤 때 판단 모델을 미리 올려 둔다 (#84). 안 하면 첫 요청이 약 20초 걸린다. 비우면(null) 미리 올리지 않는다.
+  # Ollaya 공식 load 요청의 keep_alive (예: 30m, 1h, -1 = 끌 때까지). 그 뒤 요청마다는 Ollaya의 OLLAYA_KEEP_ALIVE(기본 5m)를 따른다
+  preload_keep_alive: 30m
 
   # 클라우드 (OpenAI Decisions) — 가명화된 문장만 보낸다. 키는 .env의 OPENAI_API_KEY
   cloud:

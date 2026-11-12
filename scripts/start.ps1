@@ -83,6 +83,9 @@ if ($Beta) {
     }
     $env:OLLAYA_KEEP_ALIVE = "24h"          # 이 스크립트가 켜는 Ollaya에만 (Ollaya 문서 docs/api.md §6, §15)
     $NoWindow = $true
+} elseif (-not $env:OLLAYA_KEEP_ALIVE) {
+    # 평소에도 마지막 요청 뒤 30분은 판단 모델을 둔다 (Ollaya 기본 5분, #84). 게이트웨이는 켤 때 모델을 미리 올린다
+    $env:OLLAYA_KEEP_ALIVE = "30m"
 }
 Start-Hidden "ollaya" $ollaya @("serve") $OllayaPort 30
 Start-Hidden "gateway" $uv @("run", "--frozen", "uvicorn", "gateway.main:app", "--host", "127.0.0.1", "--port", "$GatewayPort") $GatewayPort 90
