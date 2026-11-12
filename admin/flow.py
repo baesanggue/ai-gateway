@@ -6,7 +6,17 @@
 - 예/아니오 판단은 신뢰도 대신 "확률 / 기준값"으로 보여 준다 (D24: 기준값이 0.5에서 멀면 신뢰도는 맞지 않는다)
 - 로그에는 가명화된 문장만 있다. 원문은 시연 화면의 세션에만 있다 (설계 결정 2번)
 """
+import html
+import re
 from dataclasses import dataclass, field
+
+BOLD = re.compile(r"\*\*(\S(?:[^\n]*?\S)?)\*\*")   # 한 줄 안의 **굵게**. 공백으로 감싼 별표("2 ** 3")는 아니다
+
+
+def answer_html(text: str) -> str:
+    """받은 답변을 화면에 넣을 HTML로. 먼저 이스케이프해 답 속 HTML이 화면에서 동작하지 않게 하고, 그다음 굵게만 <b>로 바꾼다.
+    LLM 답은 마크다운으로 오는데 글자 그대로 두면 시연에서 "**제목**"이 보인다 (#80 리허설)."""
+    return BOLD.sub(r"<b>\1</b>", html.escape(text))
 
 ROUTE_KO = {"template": "템플릿 답변", "cheap": "저렴한 모델", "premium": "고성능 모델", "block": "막음"}
 REASON_KO = {

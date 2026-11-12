@@ -14,7 +14,7 @@ import streamlit as st
 from openai import OpenAI, OpenAIError
 
 from admin import beta
-from admin.flow import outbound_text, session_totals
+from admin.flow import answer_html, outbound_text, session_totals
 from admin.ui import ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
@@ -76,7 +76,7 @@ def _terminal(turns: list[dict]) -> str:
     else:
         body = "".join(
             f"<div><span class='meta'>[{i}]</span> <span class='u'>&gt; {html.escape(t['user'])}</span></div>"
-            f"<div class='{'b blk' if t['route'] in ('block', 'error') else 'b'}'>{html.escape(t['answer'])}</div>"
+            f"<div class='{'b blk' if t['route'] in ('block', 'error') else 'b'}'>{answer_html(t['answer'])}</div>"
             for i, t in enumerate(turns, 1))
     return f"<div class='gw-term'><div>{body}</div></div>"     # column-reverse 안쪽 한 덩어리 → 맨 아래부터 보인다
 
@@ -85,7 +85,7 @@ def _panels(row: dict | None, turn: dict) -> str:
     out = outbound_text(row) if row else None
     out_html = ("<span class='none'>외부로 나간 것 없음</span>" if out is None
                 else TOKEN.sub(lambda m: f"<span class='gw-tok'>{m.group()}</span>", html.escape(out)))
-    answer = html.escape(turn["answer"]) or "<span class='none'>-</span>"
+    answer = answer_html(turn["answer"]) or "<span class='none'>-</span>"
     return ("<div style='display:flex;gap:10px'>"
             f"<div class='gw-panel out' style='flex:1'><h4>외부 AI 서버로 나간 텍스트</h4>{out_html}</div>"
             f"<div class='gw-panel in' style='flex:1'><h4>사용자가 받은 답변 (이 PC에서 복원)</h4>"
