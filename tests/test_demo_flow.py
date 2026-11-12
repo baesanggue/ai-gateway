@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from admin.flow import build_steps, outbound_text, session_totals  # noqa: E402
+from admin.flow import answer_html, build_steps, outbound_text, session_totals  # noqa: E402
 
 TH = {"is_confidential": 0.10, "needs_raw_value": 0.02, "is_risky": 0.5}
 
@@ -84,3 +84,12 @@ def test_unmasked_notation_is_blocked_at_the_masking_step():
 
 def test_session_totals_sum_cost_and_baseline():
     assert session_totals([row(), row(cost_usd=0.0, baseline_cost_usd=0.001)]) == (0.0001, 0.003)
+
+
+def test_answer_html_shows_bold_without_running_html():
+    """LLM 답의 **굵게**는 굵게 보이고 별표는 사라진다 (#80 리허설: 시연 화면에 **가 보였다).
+    답 속 HTML은 먼저 이스케이프되어 화면에서 동작하지 않는다."""
+    assert answer_html("**제목: 사과 말씀**\n김민수 고객님께") == "<b>제목: 사과 말씀</b>\n김민수 고객님께"
+    assert answer_html("**<script>x</script>**") == "<b>&lt;script&gt;x&lt;/script&gt;</b>"
+    assert answer_html("2 ** 3 = 8, a**b") == "2 ** 3 = 8, a**b"          # 짝이 없거나 공백으로 감싼 별표는 그대로
+    assert answer_html("**줄이\n넘어가면**") == "**줄이\n넘어가면**"       # 굵게는 한 줄 안에서만
