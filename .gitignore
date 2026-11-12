@@ -43,3 +43,6 @@ finetune/checkpoints/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 학과 양식(hwpx)에 채운 결과보고서 — 양식은 커밋하지 않는다 (docs/presentation/build_report.py로 다시 만든다)
+docs/presentation/*.hwpx
