@@ -72,6 +72,9 @@ ADDRESS_KIND = "주소"
 # 번호가 더 있다("마포구 가상동 예시리더스"). 동에서 끝나는 지역 이름("서울시 마포구 망원동 맛집")은 가리지 않는다
 ADDRESS_LIKE_PLACE = re.compile(r"[가-힣]{1,6}[시도구군]\s{0,3}[가-힣\d]{1,8}?[동읍면리가]\s{0,3}[가-힣A-Za-z\d]")
 _ADDRESS_GAP = re.compile(r"[\s,]*")      # 이 글자만 사이에 있는 두 주소 조각은 한 주소다
+# 번호·호·층·번지 뒤의 조사. 모델이 "샘플길 7로"처럼 조사까지 주소로 보면 값에 조사가 들어가, LLM이 "[주소1]로"라고 쓸 때
+# "7로로"로 복원된다 (#62 G018). 조사는 토큰 밖에 남긴다. "가"·"이"·"도"는 넣지 않는다: "종로3가"처럼 주소의 일부일 수 있다
+_ADDRESS_JOSA = re.compile(r"(?<=[\d호층지])(?:으로|로|에서|에게|에|은|는|을|를|와|과|의|까지|부터)$")
 
 
 def _alternation(values: list[str]) -> re.Pattern[str] | None:
@@ -111,7 +114,7 @@ def _address_values(texts: list[str], spans: list[Span]) -> list[str]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], b))
             else:
                 merged.append((a, b))
-        values += [text[a:b].strip(" ,") for a, b in merged]
+        values += [_ADDRESS_JOSA.sub("", text[a:b].strip(" ,")) for a, b in merged]
         offset += len(text) + 1                      # 이어 붙인 줄바꿈 자리
     return [v for v in dict.fromkeys(values) if sum(c.isalnum() for c in v) >= 2]
 
