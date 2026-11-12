@@ -119,3 +119,11 @@ irm https://ollaya.dev/install.ps1 | iex
 
 - TypeSafe Python SDK를 쓸지, httpx로 직접 호출할지 → M1 #8에서 결정. 형식이 같으므로 httpx 직접 호출로도 충분하다.
 - Ollama 0.40도 판단 모델 9종을 같은 형식으로 서빙한다(확률은 보정 없는 raw softmax). 참고만 한다.
+
+## 판단 모델 미리 올리기 (#84, 2026-11-12 확인)
+
+- 공식 문서 `docs/api.md` §6·§7.3: `POST /api/decide`에 `state`·`questions` 없이 `{"model": ..., "keep_alive": ...}`만 보내면 판단하지 않고 모델을 올린다(`done_reason: "load"`). `keep_alive`가 0이면 내린다.
+- `keep_alive` 형식: Go 기간 문자열(`5m`, `1h30m`), 초(숫자), 음수는 서버가 끝날 때까지. `/v1/*` 요청은 `keep_alive`를 읽지 않고 `OLLAYA_KEEP_ALIVE`(기본 `5m`)를 따른다. 가장 최근 요청의 값이 타이머를 바꾼다.
+- 게이트웨이: 켤 때 따로 도는 스레드로 `decision.preload_keep_alive`(기본 `30m`) 값으로 미리 올린다(`DecisionService.preload_local`). 실패하면 경고만 남긴다.
+- `scripts/start.ps1`: 켜는 Ollaya에 `OLLAYA_KEEP_ALIVE=30m`(체험판 `-Beta`는 `24h`)을 준다. 이미 켜진 Ollaya에는 적용되지 않는다.
+- 11/12 확인: 게이트웨이를 켜고 요청 없이 `ollaya ps` → `gliclass:v4-edge ... UNTIL 26 minutes from now`.
