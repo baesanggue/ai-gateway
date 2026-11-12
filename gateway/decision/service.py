@@ -97,6 +97,14 @@ class DecisionService:
         self.local.close()
         self.cloud.close()
 
+    def preload_local(self) -> str | None:
+        """게이트웨이를 켤 때 로컬 판단 모델을 미리 올린다 (#84). Ollaya가 아니거나 설정이 비어 있으면 하지 않는다(None).
+        실패하면 DecisionError — 첫 요청이 조금 늦을 뿐 동작은 그대로다."""
+        keep_alive = self.cfg.preload_keep_alive
+        if self.cfg.engine != "ollaya" or not keep_alive or not hasattr(self.local, "preload"):
+            return None
+        return self.local.preload(keep_alive)
+
     def judge_local(self, texts: str | list[str], questions: list[str] | None = None) -> JudgeResult:
         """원본을 봐야 하는 판단. texts는 메시지 내용들(문자열 하나도 된다). questions를 주지 않으면 설정대로 묻는다.
 

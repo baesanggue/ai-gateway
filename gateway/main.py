@@ -6,6 +6,7 @@
 import hmac
 import logging
 import threading
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,6 +20,7 @@ from gateway import admin_token
 from gateway.admin_token import ADMIN_TOKEN_HEADER, write_admin_token
 from gateway.api.routes import local_problem, openai_error, router
 from gateway.config import Settings, load_settings
+from gateway.decision.engines import DecisionError
 from gateway.masking.masker import Masker
 from gateway.pipeline import Gateway
 from gateway.storage.log import RequestLog
@@ -30,6 +32,18 @@ RETIRE_SECONDS = 180
 RELOAD_ERRORS = (ValueError, RuntimeError, OSError, yaml.YAMLError)
 
 logger = logging.getLogger(__name__)
+
+
+def _preload(gateway: Gateway) -> None:
+    """판단 모델을 미리 올린다. 실패해도 게이트웨이는 그대로 돈다(첫 요청이 늦을 뿐)."""
+    t0 = time.perf_counter()
+    try:
+        reason = gateway.decision.preload_local()
+    except DecisionError as e:
+        logger.warning("판단 모델을 미리 올리지 못했습니다 (첫 요청이 늦을 수 있음): %s", e)
+        return
+    if reason is not None:
+        logger.info("판단 모델을 미리 올렸습니다: %s (%.1f초)", reason, time.perf_counter() - t0)
 
 
 def create_app(settings: Settings | None = None, *, transport=None, masker: Masker | None = None,
@@ -47,6 +61,9 @@ def create_app(settings: Settings | None = None, *, transport=None, masker: Mask
         app.state.gateway = Gateway.from_settings(settings, transport=transport, masker=masker, log=log)
         # 관리 토큰 (D26): 켤 때마다 새로. 설정 화면만 이 파일을 읽어 설정 다시 읽기를 부른다
         app.state.admin_token = write_admin_token(admin_token_path or admin_token.ADMIN_TOKEN_PATH)
+        # 판단 모델 미리 올리기 (#84): 켜는 것을 막지 않게 따로 돌린다. 시험(가짜 상위 서버)에서는 하지 않는다
+        if transport is None:
+            threading.Thread(target=_preload, args=(app.state.gateway,), daemon=True, name="preload").start()
         yield
         app.state.gateway.close()
 

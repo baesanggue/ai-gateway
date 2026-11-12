@@ -67,6 +67,9 @@ class DecisionConfig(BaseModel):
     # 판단 모델이 정책 문장(배송비·할인율 등)을 기밀로 봐서(실측 0.47), 등록하지 않은 긴 지시문은 엄격 수준에서 막힐 수 있다
     trusted_system_prompts: list[str] = []
     local_cache_size: int = 2048       # 기억할 구간 판단 수 (같은 글 → 같은 답, 11/08 확인)
+    # 게이트웨이가 켤 때 판단 모델을 미리 올려 둔다 (#84, 11/12). 안 올려 두면 첫 요청이 모델을 올리느라 약 20초 걸린다.
+    # Ollaya 공식 load 요청(POST /api/decide, state·questions 없이)의 keep_alive 값. None이면 미리 올리지 않는다
+    preload_keep_alive: str | None = "30m"
     # 클라우드 판단 (OpenAI Decisions, 가명화된 문장만)
     cloud: CloudDecisionConfig
     # 질문별 '예' 기준값

@@ -199,3 +199,41 @@ def test_confidence_formula():
     assert confidence({"yes": 0.5}) == 0
     assert confidence({"yes": 0.0}) == 1
     assert confidence({"a": 0.25, "b": 0.25, "c": 0.25, "d": 0.25}) == 0
+
+
+# ── 판단 모델 미리 올리기 (#84) ──
+
+def test_preload_sends_the_official_load_request():
+    """Ollaya 공식 문서(docs/api.md §7.3): state·questions 없이 model·keep_alive만 보내면 모델을 올린다."""
+    import httpx
+    from gateway.decision.engines import SystemOneEngine
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"model": "gliclass:v4-edge", "done_reason": "load"})
+
+    eng = SystemOneEngine("http://127.0.0.1:11435", "gliclass:v4-edge", 10, transport=httpx.MockTransport(handler))
+    assert eng.preload("30m") == "load"
+    assert seen == [("/api/decide", {"model": "gliclass:v4-edge", "keep_alive": "30m"})]
+
+
+def test_preload_is_skipped_when_disabled_or_not_ollaya_and_errors_are_decision_errors(tmp_path):
+    import httpx
+    from gateway.decision.engines import DecisionError, SystemOneEngine
+    from gateway.decision.service import DecisionService
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(503)
+
+    settings = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env")
+    cfg = settings.config.decision
+    local = SystemOneEngine(cfg.base_url, cfg.model, 10, transport=httpx.MockTransport(handler))
+    svc = DecisionService(local, local, cfg)
+    with pytest.raises(DecisionError):                    # 서버가 실패하면 판단 오류로 (게이트웨이는 경고만 남긴다)
+        svc.preload_local()
+    for change in ({"preload_keep_alive": None}, {"engine": "jev"}):
+        assert DecisionService(local, local, cfg.model_copy(update=change)).preload_local() is None
+    assert calls == ["/api/decide"]
