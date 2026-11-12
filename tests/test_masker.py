@@ -313,6 +313,19 @@ def test_address_containing_a_dictionary_value_is_masked_whole():
     assert len(ner.texts) == 1
 
 
+@pytest.mark.parametrize("text, span, value, after", [
+    ("주소가 광주시 북구 샘플길 7로 바뀌었다", "광주시 북구 샘플길 7로", "광주시 북구 샘플길 7", "[주소1]로 바뀌었다"),
+    ("서울시 마포구 가상로 12에서 만나요", "서울시 마포구 가상로 12에서", "서울시 마포구 가상로 12", "[주소1]에서 만나요"),
+    ("예시타워 101호를 확인", "예시타워 101호를", "예시타워 101호", "[주소1]를 확인"),
+], ids=["ro-after-digit", "eseo", "ho-reul"])
+def test_particle_inside_the_model_address_span_stays_outside_the_token(text, span, value, after):
+    """모델이 주소 끝의 조사까지 주소로 보면("샘플길 7로") 값에 조사가 들어가, LLM이 "[주소1]로"라고 쓰면 "7로로"로
+    복원된다 (#62 답변 품질 G018). 번호·호·층·번지 뒤의 조사는 값에서 뺀다."""
+    masker, _, r = ner_mask(text, addresses=[span])
+    assert r.mapping == {"[주소1]": value} and r.messages[0]["content"].endswith(after)
+    assert masker.restore("[주소1]로 변경했습니다", r.mapping).text == value + "로 변경했습니다"   # "7로로"가 아니다
+
+
 def test_floor_found_with_the_address_is_masked_together():
     """모델이 층까지 주소로 보면 정규식 주소(시·도~번호)와 합쳐 한 토큰으로 가린다."""
     ner = FakeNer(addresses=["성남시 분당구 가상로 45 3층"])
