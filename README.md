@@ -161,6 +161,7 @@ flowchart LR
 | 경로 정확도 | **89%**, 쇼핑몰(시연 업종) **97%** |
 | 비용 절감 | 단순 요청 템플릿 **100%**, 저렴한 모델 **95%**. 전체는 요청 구성에 달렸다(복잡한 요청 10%면 48%, 이 테스트셋은 10%) |
 | 판단 지연 (로컬 + 클라우드) | 평균 0.50초, p95 0.65초. 이름 인식은 문장당 2ms |
+| 답변 품질 (원문 vs 가려서 보내고 복원, 38건 블라인드 채점) | 요청 충족·정확성 같음(5점 중 4.8·4.6), 자연스러움 −0.29 → 토큰 지시문 보완 ([docs/benchmark.md](docs/benchmark.md), #62) |
 
 ### 알려진 한계
 
@@ -217,6 +218,7 @@ uv run python -m bench.run_gateway --help   # 벤치마크 실행기 (docs/bench
 
 ## 문서
 
-- [설계 결정 기록](docs/decisions.md) — 9/29 계획(Spring Boot·React·Jev)에서 바뀐 점과 이유, D1~D26
+- [설계 결정 기록](docs/decisions.md) — 9/29 계획(Spring Boot·React·Jev)에서 바뀐 점과 이유, D1~D29
 - [AI 활용 기록](docs/ai-log.md) — AI에게 맡긴 일과 직접 결정한 것
+- [발표 Q&A 대비](docs/learning/qa-prep.md) — 처음 보는 사람에게 설명하기: 핵심 개념 넷과 예상 질문 · [한계](docs/limitations.md)
 - [발표용 숫자](docs/m3-numbers.md) · [설치](docs/install.md) · [화면](docs/demo.md) · [테스트셋](data/README.md) · [프로젝트 지시서](CLAUDE.md)
