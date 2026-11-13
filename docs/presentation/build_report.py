@@ -5,7 +5,7 @@
 - 내용은 docs/presentation/report-draft.md의 "## 제목" 아래 글에서 읽는다(번호 목록은 칸 안의 문단 하나씩)
 - 양식의 글꼴·서식("폰트 수정금지")은 건드리지 않는다: 칸 안의 첫 문단을 본떠 문단만 바꾼다(같은 문단·글자 모양 번호)
 - 줄 배치 정보(linesegarray)는 빼서 한글이 열 때 다시 계산하게 한다
-- 산출물 그림 6칸도 넣는다(#106): report-draft.md의 산출물 목록 순서대로 report-images/의 그림과 설명 한 줄을 칸 가운데에.
+- 산출물 그림 6칸도 넣는다(#108): report-draft.md의 산출물 목록 순서대로 report-images/의 그림과 설명 한 줄을 칸 가운데에.
   그림은 BinData/에 넣고 Contents/content.hpf 목록에 올린다. 칸 크기에 맞게 비율을 지켜 줄인다
 - hwpx는 zip이다. mimetype을 맨 앞에 압축 없이 두는 규칙을 지킨다
 """
