@@ -2,6 +2,8 @@
 
     python docs/presentation/build_report.py "<양식.hwpx>" [<결과.hwpx>]
 
+- 결과 파일 이름을 주지 않으면 양식 이름의 "_양식_이름"을 "_배상규"로 바꿔 이 폴더에 만든다(제출 형식, #113)
+
 - 내용은 docs/presentation/report-draft.md의 "## 제목" 아래 글에서 읽는다(번호 목록은 칸 안의 문단 하나씩)
 - 양식의 글꼴·서식("폰트 수정금지")은 건드리지 않는다: 칸 안의 첫 문단을 본떠 문단만 바꾼다(같은 문단·글자 모양 번호)
 - 줄 배치 정보(linesegarray)는 빼서 한글이 열 때 다시 계산하게 한다
@@ -170,9 +172,18 @@ def manifest_with(hpf: bytes, files: list[tuple[str, Path]]) -> bytes:
     return hpf.replace(b"</opf:manifest>", items.encode("utf-8") + b"</opf:manifest>", 1)
 
 
+AUTHOR = "배상규"
+
+
+def default_out(template: Path) -> Path:
+    """제출 파일 이름은 양식 이름을 따른다: '…결과보고서_양식_이름.hwpx' → '…결과보고서_배상규.hwpx' (#113)."""
+    name = template.name.replace("_양식_이름", f"_{AUTHOR}")
+    return HERE / (name if name != template.name else f"결과보고서_{AUTHOR}.hwpx")
+
+
 def main() -> None:
     template = Path(sys.argv[1])
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "결과보고서_가림게이트.hwpx"
+    out = Path(sys.argv[2]) if len(sys.argv) > 2 else default_out(template)
     sections = read_draft()
     with zipfile.ZipFile(template) as src, zipfile.ZipFile(out, "w") as dst:
         section_xml, files = fill(src.read("Contents/section0.xml"), sections)

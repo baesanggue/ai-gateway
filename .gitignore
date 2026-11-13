@@ -49,3 +49,6 @@ docs/presentation/*.hwpx
 
 # 시연 원본 녹화(2분, 26MB)와 작업 파일 — 커밋하는 것은 잘라 낸 docs/presentation/demo-30s.mp4뿐 (#106)
 발표/
+
+# PowerPoint가 발표 파일을 여는 동안 만드는 잠금 파일 (#113)
+~$*
