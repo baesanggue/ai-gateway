@@ -1,6 +1,6 @@
 """11/17 결과 발표 자료를 만든다 (#95). 5분, 9장: 개요 → AI 활용 내역 → 결과.
 
-    python docs/presentation/build_deck.py      # 시스템 파이썬(python-pptx 1.0)으로 실행
+    python docs/presentation/build_deck.py      # 시스템 파이썬(python-pptx 1.0, segno 1.6)으로 실행
 
 - 숫자는 만들 때 저장소에서 읽는다(커밋한 날, 설계 결정, AI 활용 기록, 시험 수). 발표 전날 다시 만들면 최신이 된다
 - 측정 숫자는 docs/m3-numbers.md, 한계는 docs/limitations.md에서 왔다
@@ -9,7 +9,10 @@
   - 모든 장이 밝은 바탕. 둥근 카드·번호 동그라미 대신 여백과 가는 선으로 나눈다
   - 같은 격자: 좌우 여백 0.75", 위에 작은 머리말 + 제목, 본문은 1.85"부터, 아래에 작은 쪽 표시
   - 색은 파랑 하나를 기본으로, 막힘·한계만 빨강. 가명 토큰 칩([고객1], 노랑)은 제품의 상징이라 남긴다
+- 마지막 장에 설문 폼 QR (D30, #118). 체험판 주소가 아니라 폼으로 연결한다: 체험판 주소는 켤 때마다 바뀌지만 폼 링크는
+  그대로다. 체험판 주소·비밀번호는 폼 안에만 둔다(발표 자료는 제출되므로 비밀번호를 슬라이드에 쓰지 않는다)
 """
+import io
 import re
 import subprocess
 from pathlib import Path
@@ -25,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / "2026-11-17-garimgate.pptx"
 DEMO_SHOT = ROOT / "docs" / "design" / "screen-demo.png"
 PRESENTER = "컴퓨터소프트웨어공학과  배상규"
+SURVEY_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf3bwL1mZQ2NK1rP3dD4P9aeijsQQbZRPiZAi9NlYfjQMdZPA/viewform"  # 설문 폼 (docs/survey.md)
 
 FONT = "맑은 고딕"
 MONO = "Consolas"
@@ -421,7 +425,7 @@ def s8_limits(prs):
     text(s, rx, TOP + 0.05, rw, 0.45, "다음 단계", size=18, bold=True, color=BLUE)
     nexts = [("완전 로컬 모드", "막힌 요청은 밖으로 보내지 않고 이 PC의 작은 LLM이 처리"),
              ("계산은 코드로", "나이·날짜 계산은 원본을 PC 안에서 코드가 풀고 결과만 LLM에"),
-             ("배포·사용자 평가", "웹 체험판 준비 완료 → 12월 사용자 설문 10명 이상")]
+             ("배포·사용자 평가", "웹 체험판 공개 중(11/14~) → 사용자 설문 10명 이상, 12/1까지")]
     y = TOP + 0.75
     for i, (head, body) in enumerate(nexts, 1):
         text(s, rx, y, 0.4, 0.45, str(i), size=20, bold=True, color=BLUE)
@@ -431,20 +435,37 @@ def s8_limits(prs):
     footer(s, 8)
     notes(s, "(25초) 한계도 있습니다. 개인정보가 든 요청의 3분의 1은 답이 실제 값에 달려 있어서, 가린 글로는 풀 수 없으니 막습니다. "
              "안전하지만 사용자는 그 일을 못 합니다. 다음 단계로 이런 요청을 이 PC의 작은 LLM이 처리하는 완전 로컬 모드와, "
-             "정해진 계산은 코드가 PC 안에서 푸는 방법을 준비하고 있습니다. 사용자 평가는 웹 체험판으로 12월에 진행합니다.")
+             "정해진 계산은 코드가 PC 안에서 푸는 방법을 준비하고 있습니다. 사용자 평가는 웹 체험판으로 지금 받고 있습니다.")
+
+
+def survey_qr() -> io.BytesIO:
+    """설문 폼 QR(PNG). 오류 정정 M: 화면 반사·먼 자리에서도 읽히게. 둘레 4칸은 QR 규격의 여백."""
+    import segno
+    buf = io.BytesIO()
+    segno.make(SURVEY_URL, error="m", micro=False).save(buf, kind="png", scale=12, border=4, dark="#111827")
+    buf.seek(0)
+    return buf
 
 
 def s9_end(prs):
     s = new_slide(prs)
-    text(s, 0.9, 1.9, 11.5, 1.0, "감사합니다", size=48, bold=True)
-    text(s, 0.9, 3.05, 11.5, 0.5, "가림게이트 — 보안을 지키면서 아끼는 관문, API 주소 한 줄로", size=20, color=BODY)
+    qx, qy, qs = 10.13, 1.75, 2.3                         # 오른쪽 QR: 오른쪽 끝을 아래 가로선 끝(12.43")에 맞춘다
+    text(s, 0.9, 1.9, 8.6, 1.0, "감사합니다", size=48, bold=True)
+    text(s, 0.9, 3.05, 8.6, 0.5, "가림게이트 — 보안을 지키면서 아끼는 관문, API 주소 한 줄로", size=20, color=BODY)
     x = chip(s, 0.9, 3.95, "[고객1]", size=16)
     x = chip(s, x + 0.15, 3.95, "[전화번호1]", size=16)
     chip(s, x + 0.15, 3.95, "[주소1]", size=16)
+    rule(s, qx - 0.5, 1.9, qx - 0.5, 4.85)
+    qr = s.shapes.add_picture(survey_qr(), Inches(qx), Inches(qy), width=Inches(qs), height=Inches(qs))
+    qr.name = "설문 QR"
+    text(s, qx - 0.3, qy + qs + 0.1, qs + 0.6, 0.8,
+         [[("직접 써 보고 설문에 답해 주세요", {"size": 13, "bold": True})],
+          [("체험 + 설문 약 10분 · 가상 정보만", {"size": 11, "color": SUB})]], align=PP_ALIGN.CENTER, spacing=2)
     rule(s, 0.9, 5.2, 12.43, 5.2)
     text(s, 0.9, 5.45, 6, 0.4, "github.com/baesanggue/ai-gateway", size=15, color=BLUE)
     text(s, 6.9, 5.45, 5.53, 0.4, PRESENTER, size=15, color=BODY, align=PP_ALIGN.RIGHT)
-    notes(s, "(5초) 가림게이트, 보안을 지키면서 아끼는 관문이었습니다. 감사합니다.")
+    notes(s, "(10초) 가림게이트, 보안을 지키면서 아끼는 관문이었습니다. 오른쪽 QR로 직접 써 보시고 설문에 답해 주시면 "
+             "큰 도움이 됩니다. 감사합니다.")
 
 
 def main() -> None:
