@@ -57,11 +57,12 @@ $uv = Find-Exe "uv" (Join-Path $env:USERPROFILE ".local\bin\uv.exe")
 $ollaya = Find-Exe "ollaya" (Join-Path $env:LOCALAPPDATA "Programs\Ollaya\bin\ollaya.exe")
 
 Write-Host "가림게이트 켜기"
+# 체험판 비밀번호가 있는가 (값은 읽지 않고 있는지만 본다). 있으면 화면은 -Beta 없이 켜도 체험판이다 (admin/beta.py)
+$envFile = Join-Path $Root ".env"
+$hasPassword = $env:BETA_PASSWORD -or ((Test-Path $envFile) -and
+    (Select-String -Path $envFile -Pattern '^\s*BETA_PASSWORD\s*=\s*\S' -Quiet))
 if ($Beta) {
-    # 비밀번호 없이 인터넷에 열면 설정을 바꿀 수 있는 평소 화면이 열린다. 값은 읽지 않고 있는지만 본다
-    $envFile = Join-Path $Root ".env"
-    $hasPassword = $env:BETA_PASSWORD -or ((Test-Path $envFile) -and
-        (Select-String -Path $envFile -Pattern '^\s*BETA_PASSWORD\s*=\s*\S' -Quiet))
+    # 비밀번호 없이 인터넷에 열면 설정을 바꿀 수 있는 평소 화면이 열린다
     if (-not $hasPassword) {
         Write-Host ".env에 BETA_PASSWORD가 없어 체험판을 열지 않습니다 (docs/beta.md)." -ForegroundColor Red
         exit 1
@@ -83,9 +84,16 @@ if ($Beta) {
     }
     $env:OLLAYA_KEEP_ALIVE = "24h"          # 이 스크립트가 켜는 Ollaya에만 (Ollaya 문서 docs/api.md §6, §15)
     $NoWindow = $true
-} elseif (-not $env:OLLAYA_KEEP_ALIVE) {
-    # 평소에도 마지막 요청 뒤 30분은 판단 모델을 둔다 (Ollaya 기본 5분, #84). 게이트웨이는 켤 때 모델을 미리 올린다
-    $env:OLLAYA_KEEP_ALIVE = "30m"
+} else {
+    if ($hasPassword) {
+        # 시연 녹화 때 비밀번호 화면·남은 횟수 안내가 나오지 않게 미리 알린다 (#104)
+        Write-Host "  .env에 체험판 비밀번호(BETA_PASSWORD)가 있어 화면이 체험판(비밀번호·사용량 제한)으로 켜집니다." -ForegroundColor Yellow
+        Write-Host "  평소 화면이 필요하면(시연 녹화 등) 끄고, .env의 그 줄 앞에 #을 붙인 뒤 다시 켜세요." -ForegroundColor Yellow
+    }
+    if (-not $env:OLLAYA_KEEP_ALIVE) {
+        # 평소에도 마지막 요청 뒤 30분은 판단 모델을 둔다 (Ollaya 기본 5분, #84). 게이트웨이는 켤 때 모델을 미리 올린다
+        $env:OLLAYA_KEEP_ALIVE = "30m"
+    }
 }
 Start-Hidden "ollaya" $ollaya @("serve") $OllayaPort 30
 Start-Hidden "gateway" $uv @("run", "--frozen", "uvicorn", "gateway.main:app", "--host", "127.0.0.1", "--port", "$GatewayPort") $GatewayPort 90
