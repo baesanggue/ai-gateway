@@ -1,0 +1,21 @@
+{
+ "date": "2026-11-13 18:46",
+ "pc": {
+  "os": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.1",
+  "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+  "ram_gb": "32",
+  "gpu": "NVIDIA GeForce RTX 4080 SUPER",
+  "note": "판단·이름 인식은 CPU. GPU는 쓰지 않는다"
+ },
+ "levels": [
+  1,
+  5,
+  10,
+  20,
+  30
+ ],
+ "local_model": "gliclass:v4-edge",
+ "cloud_model": "gpt-6-luna",
+ "screen_timeout_s": 120
+}
