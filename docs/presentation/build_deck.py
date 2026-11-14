@@ -9,6 +9,7 @@
   - 모든 장이 밝은 바탕. 둥근 카드·번호 동그라미 대신 여백과 가는 선으로 나눈다
   - 같은 격자: 좌우 여백 0.75", 위에 작은 머리말 + 제목, 본문은 1.85"부터, 아래에 작은 쪽 표시
   - 색은 파랑 하나를 기본으로, 막힘·한계만 빨강. 가명 토큰 칩([고객1], 노랑)은 제품의 상징이라 남긴다
+- 발표자 노트는 발표 대본 talk-script.md에서 읽는다(#120). 대본을 고쳤으면 이 스크립트와 add_video.ps1을 다시 돌린다
 - 마지막 장에 설문 폼 QR (D30, #118). 체험판 주소가 아니라 폼으로 연결한다: 체험판 주소는 켤 때마다 바뀌지만 폼 링크는
   그대로다. 체험판 주소·비밀번호는 폼 안에만 둔다(발표 자료는 제출되므로 비밀번호를 슬라이드에 쓰지 않는다)
 """
@@ -27,6 +28,7 @@ from pptx.util import Inches, Pt
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / "2026-11-17-garimgate.pptx"
 DEMO_SHOT = ROOT / "docs" / "design" / "screen-demo.png"
+SCRIPT = Path(__file__).resolve().parent / "talk-script.md"     # 발표 대본 → 발표자 노트 (#120)
 PRESENTER = "컴퓨터소프트웨어공학과  배상규"
 SURVEY_URL = "https://docs.google.com/forms/d/e/1FAIpQLSf3bwL1mZQ2NK1rP3dD4P9aeijsQQbZRPiZAi9NlYfjQMdZPA/viewform"  # 설문 폼 (docs/survey.md)
 
@@ -181,6 +183,20 @@ def notes(slide, s):
     slide.notes_slide.notes_text_frame.text = s
 
 
+def talk_notes() -> dict[int, str]:
+    """발표 대본(talk-script.md)에서 장마다 노트를 읽는다 (#120). '## 번호. 제목 — 시간' 아래의 '> ' 줄이 그 장의 말이다.
+    노트 = '(시간)' + 말한 줄을 줄마다. 대본을 한곳에만 두려고 노트를 여기에 따로 적지 않는다."""
+    found: dict[int, list[str]] = {}
+    n = None
+    for line in SCRIPT.read_text(encoding="utf-8").splitlines():
+        if m := re.match(r"## (\d+)\. .+? — (.+)$", line):
+            n = int(m.group(1))
+            found[n] = [f"({m.group(2).strip()})"]
+        elif n and line.startswith("> "):
+            found[n].append(line[2:].strip())
+    return {k: "\n".join(v) for k, v in found.items()}
+
+
 def new_slide(prs):
     return prs.slides.add_slide(prs.slide_layouts[6])
 
@@ -204,8 +220,6 @@ def s1_cover(prs):
     x = chip(s, x + 0.78, 4.95, "[전화번호1]", size=16)
     text(s, x + 0.08, 4.99, 5.0, 0.4, ")에게 배송 지연 사과 메일 써줘", size=18)
     text(s, 0.9, 6.35, 8, 0.4, PRESENTER, size=15, color=BODY)
-    notes(s, "(5초) 가림게이트입니다. API 주소 한 줄만 바꾸면 기존 AI 서비스에 개인정보 보호와 토큰 절약이 붙는 게이트웨이입니다. "
-             "아래처럼 김민수 고객의 이름과 번호는 [고객1], [전화번호1]로 바뀌어서 외부 AI로 나갑니다.")
 
 
 def s2_problem(prs):
@@ -228,9 +242,6 @@ def s2_problem(prs):
     text(s, L + 0.9, 5.78, W - 0.9, 0.5,
          "AI 챗봇·AI 기능을 운영하는 중소기업·스타트업 개발팀, 사내 AI 사용을 관리하는 보안 담당자", size=16, color=BODY)
     footer(s, 2)
-    notes(s, "(30초) 기업이 AI를 쓰면 세 가지 문제가 생깁니다. 첫째, 고객 개인정보가 그대로 외부 AI 서버로 갑니다. "
-             "둘째, 배송 문의 같은 쉬운 질문까지 비싼 모델로 보내 비용이 샙니다. 셋째, 이걸 막는 도구는 로컬 LLM이 필요해 무겁습니다. "
-             "그래서 AI 기능을 운영하는 중소기업 개발팀과 보안 담당자를 대상으로 만들었습니다.")
 
 
 def s3_solution(prs):
@@ -272,10 +283,6 @@ def s3_solution(prs):
         if i:
             rule(s, x - 0.35, 4.9, x - 0.35, 6.2)
     footer(s, 3)
-    notes(s, "(40초) 구조입니다. 기존 서비스는 API 주소만 게이트웨이로 바꿉니다. 이 PC 안에서 먼저 개인정보를 [고객1] 같은 토큰으로 가리고, "
-             "원문을 봐야 하는 기밀 판단은 로컬 모델이 합니다. 밖으로는 가명화된 문장만 나가서, 클라우드 판단이 원본 필요·위험·난이도를 보고 "
-             "정해 둔 답, 저렴한 모델, 고성능 모델, 막음 중 경로를 고릅니다. 돌아온 답변의 토큰은 이 PC에서 원래 값으로 되돌립니다. "
-             "그래서 보안, 토큰 절약, 간편함 세 가지를 한 번에 얻습니다.")
 
 
 def s4_ai_roles(prs):
@@ -305,9 +312,6 @@ def s4_ai_roles(prs):
                                     ("생성은 LLM", {"color": AMBER, "bold": True}), ("     ·     ", {"color": MUTED}),
                                     ("가리기·복원·계산은 코드", {"bold": True})]], size=18, align=PP_ALIGN.CENTER)
     footer(s, 4)
-    notes(s, "(40초) 기능마다 생성형 AI의 역할입니다. 가명화에서는 이름 인식 모델이 사전에 없는 이름과 주소의 위치를 찾습니다. "
-             "기밀 판단은 로컬 판단 모델이, 라우팅 판단은 가명화된 문장만 받은 판단 API가 합니다. 답변은 LLM이 가명 토큰이 든 요청으로 씁니다. "
-             "원칙은 판단은 판단 모델, 생성은 LLM, 실제로 값을 바꾸고 되돌리고 계산하는 일은 코드가 정확하게 한다는 것입니다.")
 
 
 def s5_demo(prs):
@@ -338,10 +342,6 @@ def s5_demo(prs):
         if i < len(steps) - 1:
             rule(s, x0, y - 0.18, 12.58, y - 0.18)
     footer(s, 5)
-    notes(s, "(30초 영상, 슬라이드가 열리면 자동 재생) 영상은 add_video.ps1이 이 사진 자리에 넣는다(demo-30s.mp4). "
-             "대본은 docs/presentation/demo-script.md. "
-             "말할 것: 첫째, 배송 문의는 LLM 없이 정해 둔 답이 나옵니다. 둘째, 사과 메일은 밖으로 [고객1]만 나가고 받은 답변에는 김민수가 돌아옵니다. "
-             "셋째, 주민번호로 나이를 계산해 달라는 요청은 실제 값이 필요해서 밖으로 보내지 않고 안내합니다. 위 카드에서 비용 차이가 보입니다.")
 
 
 def s6_results(prs):
@@ -372,11 +372,6 @@ def s6_results(prs):
         text(s, L + 2.3, y, W - 2.3, 0.35, v, size=14, color=BODY)
         y += 0.42
     footer(s, 6)
-    notes(s, "(40초) 결과입니다. 개인정보 가명화는 99.5퍼센트, 이름이 아닌 번호와 주소는 100퍼센트 가렸습니다. "
-             "실제 값이 필요한 요청은 18건 모두 막았고 잘못 막은 것은 0.6퍼센트입니다. 경로 정확도는 89퍼센트, 시연 업종인 쇼핑몰은 97퍼센트입니다. "
-             "쉬운 요청은 95에서 100퍼센트 비용을 아낍니다. 전체 절감률은 요청 구성에 달려서, 복잡한 요청이 많은 이번 테스트셋은 10퍼센트였습니다. "
-             "판단은 평균 0.5초, GPU 없이 CPU만으로 돕니다. "
-             "이름을 가려 보내도 답의 내용은 원문과 같았고, 호칭이 조금 딱딱해지는 문제는 지시문을 고쳐 줄였습니다.")
 
 
 def s7_ai_dev(prs, nums):
@@ -403,9 +398,6 @@ def s7_ai_dev(prs, nums):
         text(s, x, 5.75, w, 0.6, v, size=28, bold=True, color=BLUE)
         text(s, x, 6.38, w, 0.35, k, size=12, color=SUB)
     footer(s, 7)
-    notes(s, "(30초) 개발에도 AI를 적극 썼습니다. 코드와 시험 작성, 측정, 공식 문서 확인, 커밋마다의 보안 검토는 Claude Code에 맡겼습니다. "
-             "대신 원문이 필요한 판단만 이 PC에서 하고 나머지는 가명화된 문장으로 클라우드에 맡기는 구조, 무엇을 막을지의 정책, 화면 설계, "
-             "범위를 줄이는 결정은 제가 했습니다. 모든 결정과 AI 활용은 기록으로 남겼습니다.")
 
 
 def s8_limits(prs):
@@ -433,9 +425,6 @@ def s8_limits(prs):
         text(s, rx + 0.45, y + 0.5, rw - 0.45, 0.7, body, size=14, color=BODY, line=1.25)
         y += 1.3
     footer(s, 8)
-    notes(s, "(25초) 한계도 있습니다. 개인정보가 든 요청의 3분의 1은 답이 실제 값에 달려 있어서, 가린 글로는 풀 수 없으니 막습니다. "
-             "안전하지만 사용자는 그 일을 못 합니다. 다음 단계로 이런 요청을 이 PC의 작은 LLM이 처리하는 완전 로컬 모드와, "
-             "정해진 계산은 코드가 PC 안에서 푸는 방법을 준비하고 있습니다. 사용자 평가는 웹 체험판으로 지금 받고 있습니다.")
 
 
 def survey_qr() -> io.BytesIO:
@@ -464,8 +453,6 @@ def s9_end(prs):
     rule(s, 0.9, 5.2, 12.43, 5.2)
     text(s, 0.9, 5.45, 6, 0.4, "github.com/baesanggue/ai-gateway", size=15, color=BLUE)
     text(s, 6.9, 5.45, 5.53, 0.4, PRESENTER, size=15, color=BODY, align=PP_ALIGN.RIGHT)
-    notes(s, "(10초) 가림게이트, 보안을 지키면서 아끼는 관문이었습니다. 오른쪽 QR로 직접 써 보시고 설문에 답해 주시면 "
-             "큰 도움이 됩니다. 감사합니다.")
 
 
 def main() -> None:
@@ -483,6 +470,11 @@ def main() -> None:
     s7_ai_dev(prs, nums)
     s8_limits(prs)
     s9_end(prs)
+    script = talk_notes()
+    if set(script) != set(range(1, len(prs.slides) + 1)) or any(v.count("\n") < 1 for v in script.values()):
+        raise SystemExit(f"talk-script.md의 장({sorted(script)})이 슬라이드 {len(prs.slides)}장과 맞지 않거나 말한 줄이 없다")
+    for i, slide in enumerate(prs.slides, 1):
+        notes(slide, script[i])
     prs.save(OUT)
     print(f"saved {OUT} ({nums})")
 
