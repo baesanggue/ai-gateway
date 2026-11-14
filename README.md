@@ -221,4 +221,5 @@ uv run python -m bench.run_gateway --help   # 벤치마크 실행기 (docs/bench
 - [설계 결정 기록](docs/decisions.md) — 9/29 계획(Spring Boot·React·Jev)에서 바뀐 점과 이유, D1~D30
 - [AI 활용 기록](docs/ai-log.md) — AI에게 맡긴 일과 직접 결정한 것
 - [발표 Q&A 대비](docs/learning/qa-prep.md) — 처음 보는 사람에게 설명하기: 핵심 개념 넷과 예상 질문 · [한계](docs/limitations.md)
+- [발표 대본](docs/presentation/talk-script.md) — 11/17 5분 발표, 장별 시간·말할 것·비상시 대처 (발표자 노트가 여기서 만들어진다)
 - [발표용 숫자](docs/m3-numbers.md) · [설치](docs/install.md) · [화면](docs/demo.md) · [테스트셋](data/README.md) · [프로젝트 지시서](CLAUDE.md)
