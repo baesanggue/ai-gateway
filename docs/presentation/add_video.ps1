@@ -45,8 +45,8 @@ try {
     $v.Left = $left; $v.Top = $top
     $v.Name = $VideoName
     $v.Line.Visible = -1
-    $v.Line.ForeColor.RGB = 0xE5E7EB                        # build_deck.py의 LINE (BGR 순서라 회색은 같다)
-    $v.Line.Weight = 1
+    $v.Line.ForeColor.RGB = 0xAF401E                        # build_deck.py의 BAND 1E40AF (COM은 BGR 순서) (#126)
+    $v.Line.Weight = 1.5
     $v.AnimationSettings.PlaySettings.PlayOnEntry = -1      # 슬라이드가 열리면 바로 재생
     $v.AnimationSettings.PlaySettings.HideWhileNotPlaying = 0
     $v.MediaFormat.SetDisplayPicture($PosterMs)             # 인쇄·PDF·재생 전 표지 그림
