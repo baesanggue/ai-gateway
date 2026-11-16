@@ -12,6 +12,8 @@
   - 글씨는 검정. 회색 글씨는 쓰지 않는다. 강조만 파랑·초록·빨강·주황, 어두운 바탕에서는 흰색·연파랑
   - 표지·마무리는 진한 남색 바탕에 흰 글씨, 본문 장은 흰 바탕. 가명 토큰 칩([고객1], 노랑)은 제품의 상징이라 남긴다
   - 11/13(#111)의 "카드 대신 여백과 가는 선"은 되돌렸다
+- 말 (11/16, #127): 컴퓨터소프트웨어공학과 3학년이 처음 봐도 알아듣게. 장 제목과 문장은 "~습니다/~입니다"로 끝까지 맺고,
+  이름표(상자 띠·표 머리·숫자 이름)만 짧은 명사로 둔다. [고객1]은 "가명"이라고 쓴다("토큰"은 비용의 토큰과 헷갈린다)
 - 글씨 크기는 역할마다 하나 (#124): 표지 제목 54 · 큰 숫자 40 · 장 제목 30 · 소제목 20 · 본문 16(상자 제목은 굵게) · 보조 14.
   만들 때 모든 글씨의 크기와 색이 정한 것 중 하나인지 검사한다(check_text)
 - 발표자 노트는 발표 대본 talk-script.md에서 읽는다(#120). 대본을 고쳤으면 이 스크립트와 add_video.ps1을 다시 돌린다
@@ -276,7 +278,7 @@ def s1_cover(prs):
     text(s, 0.9, 1.0, 11, 0.35, "인공지능프로젝트 결과물 발표  ·  2026. 11. 17", size=T_SMALL, color=LIGHT)
     text(s, 0.9, 1.45, 11.5, 1.1, [[("가림게이트", {"size": T_COVER, "bold": True}),
                                    ("   GarimGate", {"size": T_TITLE, "color": LIGHT})]], color=WHITE)
-    text(s, 0.9, 2.6, 11.5, 0.5, "API 주소 한 줄로 붙이는 개인정보 보호 · 토큰 절약 게이트웨이", size=T_HEAD, color=WHITE)
+    text(s, 0.9, 2.6, 11.5, 0.5, "회사 AI 서비스에 개인정보 보호와 비용 절약을 더하는 관문입니다", size=T_HEAD, color=WHITE)
     # 반복 모양: 원문 → 가명 토큰. 이름표 칸을 채운 두 줄
     x0, w, lw, h = 0.9, 11.53, 2.4, 0.8
     y1, y2 = 3.7, 4.65
@@ -294,11 +296,11 @@ def s1_cover(prs):
 
 def s2_problem(prs):
     s = new_slide(prs)
-    header(s, "문제", "AI를 업무에 붙이면 생기는 세 가지 문제")
+    header(s, "문제", "회사가 AI를 쓰면 세 가지 문제가 생깁니다")
     items = [
-        ("01", "개인정보가 그대로 나간다", "고객 이름·전화번호·주민번호가 요청에 담긴 채 외부 AI 서버로 전송된다", RED),
-        ("02", "쉬운 질문도 비싼 모델로", "“배송 언제 와요?”까지 고성능 모델로 보내 비용과 지연이 커진다", AMBER),
-        ("03", "막는 도구는 무겁다", "무거운 로컬 LLM과 복잡한 설정이 필요해 중소기업이 도입하기 어렵다", INK),
+        ("01", "개인정보 유출", "고객 이름·전화번호·주민번호가 요청에 담긴 채 외부 AI 서버로 그대로 전송됩니다.", RED),
+        ("02", "비용 낭비", "“배송 언제 와요?” 같은 쉬운 질문까지 비싼 모델로 보내 비용과 시간이 낭비됩니다.", AMBER),
+        ("03", "어려운 도입", "이를 막는 기존 도구는 무거운 로컬 LLM과 복잡한 설정이 필요해 중소기업이 쓰기 어렵습니다.", INK),
     ]
     for (n, head, body, accent), (x, w) in zip(items, columns(3)):
         bx, by, bw = card(s, x, TOP + 0.1, w, 3.05, head)
@@ -307,20 +309,20 @@ def s2_problem(prs):
     y, h = 5.4, 0.7
     bx = label_row(s, L, y, W, h, "대상", 1.3)
     text(s, bx, y, L + W - bx - PAD, h,
-         "AI 챗봇·AI 기능을 운영하는 중소기업·스타트업 개발팀, 사내 AI 사용을 관리하는 보안 담당자", anchor=MSO_ANCHOR.MIDDLE)
+         "AI 기능을 운영하는 중소기업·스타트업 개발팀과 사내 보안 담당자를 위해 만들었습니다.", anchor=MSO_ANCHOR.MIDDLE)
     footer(s, 2)
 
 
 def s3_solution(prs):
     s = new_slide(prs)
-    header(s, "해결", "API 주소만 바꾸면, 가리고 · 판단하고 · 되돌린다")
-    nodes = [  # (제목, 설명, 폭, 띠 색) — 폭은 제목 16pt·설명 14pt가 한 줄에 들어가게. 띠 색은 어디서 도는지 (#126)
-        ("기존 서비스", "보내는 곳만\n가림게이트로", 1.5, DARK),    # OpenAI로 보내던 주소 한 줄만 바꾼다 (#122)
-        ("① 가리기", "이름·번호·주소\n→ [고객1]", 1.55, GREEN),
-        ("② 로컬 판단", "기밀인가\n(원문을 본다)", 1.55, GREEN),
-        ("③ 클라우드 판단", "원본 필요·위험\n·난이도", 2.0, BAND),
-        ("④ 경로 → LLM", "정해 둔 답·저렴\n·고성능·막음", 1.95, BAND),
-        ("⑤ 복원", "[고객1] → 김민수", 1.8, GREEN),
+    header(s, "해결", "가림게이트는 요청을 가리고, 판단하고, 되돌립니다")
+    nodes = [  # (제목, 설명, 폭, 띠 색) — 폭은 제목 16pt가 한 줄, 설명 14pt가 세 줄에 들어가게. 띠 색은 어디서 도는지 (#126)
+        ("기존 서비스", "보내는 주소만\n가림게이트로\n바꿉니다", 1.5, DARK),    # OpenAI로 보내던 주소 한 줄만 바꾼다 (#122)
+        ("① 가리기", "이름·번호를\n[고객1]처럼\n바꿉니다", 1.55, GREEN),
+        ("② 로컬 판단", "원문을 보고\n기밀인지\n판단합니다", 1.55, GREEN),
+        ("③ 클라우드 판단", "가린 문장으로\n난이도·위험을\n판단합니다", 2.0, BAND),
+        ("④ 보낼 곳 고르기", "정해 둔 답, 싼 모델,\n비싼 모델, 차단 중\n하나를 고릅니다", 2.1, BAND),
+        ("⑤ 복원", "[고객1]을\n김민수로\n되돌립니다", 1.5, GREEN),
     ]
     gap = (W - sum(n[2] for n in nodes)) / (len(nodes) - 1)
     y, h = 2.5, 1.55
@@ -334,14 +336,14 @@ def s3_solution(prs):
     for (x1, w1), (x2, _) in zip(xs, xs[1:]):
         rule(s, x1 + w1 + 0.03, y + h / 2, x2 - 0.03, y + h / 2, width=1.5, arrow=True)
     # 영역 표시: 상자 위에 이름 + 굵은 색 선 (띠 색과 같다)
-    zones = [(1, 2, "이 PC 안 — 원본은 여기서만", GREEN), (3, 4, "밖 — 가명화된 문장만", BLUE), (5, 5, "이 PC 안", GREEN)]
+    zones = [(1, 2, "이 PC 안에서 처리합니다", GREEN), (3, 4, "밖으로는 가린 문장만 나갑니다", BLUE), (5, 5, "이 PC 안", GREEN)]
     for a, b, label, color in zones:
         x1, x2 = xs[a][0], xs[b][0] + xs[b][1]
         text(s, x1, 1.95, x2 - x1, 0.3, label, size=T_SMALL, bold=True, color=color)
         rule(s, x1, 2.32, x2, 2.32, color=color, width=2.5)
-    strengths = [("보안", "원본은 이 PC 밖으로 안 나간다. 외부에는 가명 토큰만", GREEN),
-                 ("토큰 절약", "쉬운 질문은 정해 둔 답이나 저렴한 모델로", BAND),
-                 ("간편함", "로컬 LLM 없이 CPU만, 설치 스크립트 하나, 설정은 화면에서", BAND)]
+    strengths = [("보안", "원본은 이 PC 밖으로 나가지 않고, 외부 AI는 가린 문장만 봅니다.", GREEN),
+                 ("비용 절약", "쉬운 질문은 정해 둔 답이나 싼 모델로 보내 비용을 줄입니다.", BAND),
+                 ("간편함", "로컬 LLM 없이 CPU만으로 돌고, 설치 스크립트 하나로 켭니다.", BAND)]
     for (head, body, band), (x, w) in zip(strengths, columns(3)):
         bx, by, bw = card(s, x, 4.55, w, 1.75, head, band=band)
         text(s, bx, by, bw, 1.0, body, size=T_BODY, line=1.3)
@@ -350,13 +352,15 @@ def s3_solution(prs):
 
 def s4_ai_roles(prs):
     s = new_slide(prs)
-    header(s, "생성형 AI의 역할", "기능마다 생성형 AI가 하는 일")
+    header(s, "생성형 AI의 역할", "기능마다 생성형 AI가 하는 일입니다")
     rows = [
-        ("가명화", "이름 인식 모델이 사전에 없는 이름·주소의 위치를 찾는다 (로컬, 14.7MB)", "정규식·사전으로 찾아 [고객1]로 바꾸고, 답변에서 되돌린다"),
-        ("기밀 판단", "판단 모델이 원문을 보고 ‘기밀인가’의 확률을 낸다 (로컬, CPU)", "기준값과 비교해 엄격 수준에서 막는다"),
-        ("라우팅", "판단 API가 가명화된 문장으로 원본 필요·위험·난이도·의도를 판단한다", "판단 결과로 정해 둔 답·저렴·고성능·막음을 고른다"),
-        ("답변", "LLM이 가명 토큰이 든 요청으로 답을 쓴다", "토큰을 원래 이름·번호로 되돌린다 (조사까지 맞춤)"),
-        ("FAQ", "쓰지 않는다", "등록된 질문은 정해 둔 답으로 바로 (비용 0)"),
+        ("가명 처리", "이름 인식 모델이 사전에 없는 이름이 문장의 어디에 있는지 찾습니다 (이 PC, 14.7MB).",
+         "찾은 이름·번호를 [고객1]로 바꾸고, 답에서 원래 값으로 되돌립니다."),
+        ("기밀 판단", "이 PC의 판단 모델이 원문을 읽고 기밀일 확률을 냅니다.", "확률이 기준보다 높으면 엄격 수준에서 막습니다."),
+        ("모델 선택", "OpenAI 판단 API가 가린 문장으로 난이도와 위험을 판단합니다.",
+         "판단 결과로 정해 둔 답·싼 모델·비싼 모델·차단 중 하나를 고릅니다."),
+        ("답변", "LLM이 가명이 든 요청을 보고 답을 씁니다.", "답 속의 가명을 원래 이름·번호로 되돌립니다."),
+        ("FAQ", "AI를 쓰지 않습니다.", "등록된 질문은 정해 둔 답으로 바로 답합니다 (비용 0원)."),
     ]
     cx = [(L, 1.6), (L + 1.6, 5.6), (L + 7.2, W - 7.2)]          # 칸 (x, 폭): 기능 · AI가 하는 일 · 코드가 하는 일
     head_h, row_h = 0.5, 0.72
@@ -376,25 +380,25 @@ def s4_ai_roles(prs):
     for x, _ in cx[1:]:
         rule(s, x, body_top, x, body_top + body_h, color=BAND, width=0.75)
     rect(s, L, TOP, W, head_h + body_h, None, line=BAND, line_w=1.5, name="표 테두리")
-    text(s, L, y + 0.25, W, 0.45, [[("판단은 판단 모델", {"color": BLUE, "bold": True}), ("     ·     ", {}),
-                                     ("생성은 LLM", {"color": AMBER, "bold": True}), ("     ·     ", {}),
-                                     ("가리기·복원·계산은 코드", {"bold": True})]], size=T_HEAD, align=PP_ALIGN.CENTER)
+    text(s, L, y + 0.25, W, 0.45, [[("판단은 판단 모델이", {"color": BLUE, "bold": True}), (",  ", {}),
+                                     ("글쓰기는 LLM이", {"color": AMBER, "bold": True}), (",  ", {}),
+                                     ("바꾸기와 되돌리기는 코드가 합니다.", {"bold": True})]], size=T_HEAD, align=PP_ALIGN.CENTER)
     footer(s, 4)
 
 
 def s5_demo(prs):
     s = new_slide(prs)
-    header(s, "시연", "30초 시연")
+    header(s, "시연", "30초 시연입니다")
     pic = s.shapes.add_picture(str(DEMO_SHOT), Inches(L), Inches(TOP), width=Inches(7.35))
     pic.name = "시연 화면 (녹화 영상으로 바꾸기)"            # add_video.ps1이 이 이름을 찾아 영상으로 바꾼다
     pic.line.color.rgb = rgb(BAND)
     pic.line.width = Pt(1.5)
     x0, w = 8.4, 12.58 - 8.4
     steps = [  # (띠 제목, 요청, 결과)
-        ("1  배송 문의", "“주문한 거 배송 언제 와요?”", "LLM 없이 정해 둔 답 · 비용 0"),
+        ("1  배송 문의", "“주문한 거 배송 언제 와요?”", "LLM 없이 정해 둔 답을 보냅니다 (0원)."),
         ("2  개인정보가 든 요청", "“김민수 고객(010-…)에게 사과 메일”", None),
-        ("3  실제 값이 필요한 요청", "“이 주민번호로 나이 계산해줘”", "밖으로 안 보내고 안내"),
-        ("4  비용 카드", "기존 방식(전부 고성능) vs 게이트웨이", "화면 위 카드에 차이가 쌓인다"),
+        ("3  실제 값이 필요한 요청", "“이 주민번호로 나이 계산해줘”", "실제 값이 필요해서 막고 안내합니다."),
+        ("4  비용 카드", "전부 비싼 모델 vs 가림게이트", "요청마다 비용 차이가 쌓입니다."),
     ]
     h, gap, bh = 1.155, 0.1, 0.42                   # 네 상자 합이 영상 높이(4.92")와 같다
     y = TOP
@@ -402,10 +406,9 @@ def s5_demo(prs):
         bx, by, bw = card(s, x0, y, w, h, head, band_h=bh, pad=0.12)
         by = y + bh + 0.1
         text(s, bx, by, bw, 0.3, ask)
-        if result is None:
-            text(s, bx, by + 0.34, 0.85, 0.3, "밖으로는", size=T_SMALL)
-            xx = chip(s, bx + 0.8, by + 0.32, "[고객1]", size=T_SMALL, h=0.3)
-            text(s, xx + 0.1, by + 0.34, 2.2, 0.3, "답변엔 김민수", size=T_SMALL)
+        if result is None:                          # [고객1]만 나가고, 답은 복원됩니다.
+            xx = chip(s, bx, by + 0.32, "[고객1]", size=T_SMALL, h=0.3)
+            text(s, xx + 0.06, by + 0.34, bw - (xx - bx) - 0.06, 0.3, "만 나가고, 답은 복원됩니다.", size=T_SMALL)
         else:
             text(s, bx, by + 0.34, bw, 0.3, result, size=T_SMALL)
         y += h + gap
@@ -414,24 +417,25 @@ def s5_demo(prs):
 
 def s6_results(prs):
     s = new_slide(prs)
-    header(s, "결과", "측정 결과")
-    text(s, L, 1.5, W, 0.3, "테스트셋 190행(업종 4개) + 생성 데이터 622개 · 이름·번호는 모두 가상 값 · 2026-11-08 측정",
+    header(s, "결과", "테스트로 측정한 결과입니다")
+    text(s, L, 1.5, W, 0.3, "테스트셋 190개(업종 4개)와 생성 데이터 622개로 11월 8일에 측정했습니다. 이름·번호는 모두 가상 값입니다.",
          size=T_SMALL)
     stats = [  # 띠 제목은 16pt로 한 줄에 들어가게 줄였다(#126)
-        ("99.5%", "개인정보 가명화", "619 / 622\n전화·이메일·주민·카드·\n계좌·주소 100%", GREEN),   # 띄어쓰기가 없어 직접 끊는다
-        ("100%", "실제 값 필요 요청 막기", "18 / 18\n잘못 막음 0.6%", RED),
-        ("89%", "경로 정확도", "190행 중 169\n쇼핑몰(시연 업종) 97%", BLUE),
-        ("95~100%", "쉬운 요청 비용 절감", "정해 둔 답 100%\n저렴한 모델 95%", AMBER),
+        ("99.5%", "개인정보 가리기", "622개 중 619개를 가렸고, 번호·주소는 100% 가렸습니다.", GREEN),
+        ("100%", "실제 값 필요 요청 막기", "18건을 모두 막았고, 잘못 막은 비율은 0.6%입니다.", RED),
+        ("89%", "보낼 곳 고르기", "190개 중 169개를 맞혔고, 쇼핑몰은 97%입니다.", BLUE),
+        ("95~100%", "쉬운 요청 비용 절감", "정해 둔 답은 100%, 싼 모델은 95% 줄었습니다.", AMBER),
     ]
     for (big, label, detail, color), (x, w) in zip(stats, columns(4, gap=0.25)):
         bx, by, bw = card(s, x, 1.95, w, 2.35, label, pad=0.12)
         text(s, bx, by - 0.05, bw, 0.75, big, size=T_STAT, bold=True, color=color)
         text(s, bx, by + 0.75, bw, 0.8, detail, size=T_SMALL, line=1.2)
-    facts = [("판단 지연", "평균 0.50초 · p95 0.65초"),
-             ("이 PC의 모델", "판단 모델(CPU) + 이름 인식 14.7MB, GPU 없음"),
-             ("전체 비용 절감", "요청 구성에 달림 — 복잡한 요청 10%면 48%, 이 테스트셋은 10%"),
-             # 16pt로 한 줄에 들어가게 줄였다(#124). 뜻은 같다: 충족·정확성 차이 ±0.05 (qa-prep.md)
-             ("답변 품질 (38건)", "가려서 보내도 요청 충족·정확성은 그대로(5점 중 4.8·4.6), 자연스러움 −0.3 → 지시문 보완")]
+    facts = [("판단 시간", "평균 0.50초이고, 100번 중 95번은 0.65초 안에 끝납니다."),          # p95를 풀어 썼다 (#127)
+             ("이 PC의 모델", "판단 모델(CPU)과 14.7MB 이름 인식 모델만 쓰며, GPU는 필요 없습니다."),
+             # 48%는 측정 평균으로 계산한 가정이다 (m3-numbers.md)
+             ("전체 비용", "이 테스트셋은 10% 줄었고, 어려운 요청이 10%뿐이면 약 48%로 계산됩니다."),
+             # 충족·정확성 차이 ±0.05, 자연스러움 −0.3 (qa-prep.md)
+             ("답변 품질 (38건)", "가려서 보내도 요청을 채운 정도와 정확성은 같았고, 자연스러움만 조금 떨어졌습니다.")]
     y, h = 4.55, 0.42
     for k, v in facts:
         bx = label_row(s, L, y, W, h, k, 2.1)
@@ -442,22 +446,22 @@ def s6_results(prs):
 
 def s7_ai_dev(prs, nums):
     s = new_slide(prs)
-    header(s, "개발 과정", "개발에 AI 활용 — AI에게 맡긴 것, 내가 결정한 것")
-    left = ["코드와 시험 작성 — 기능마다 시험을 함께, 고장 내서 시험이 잡는지 확인",
-            "측정 실행기와 결과 분석 — 테스트셋 190행, 가명화·경로·비용",
-            "새 도구는 공식 문서부터 확인 — Ollaya, OpenAI, Cloudflare",
-            "커밋마다 자동 보안 검토 — 지적을 받아 고침"]
-    right = ["판단을 둘로 나누기 — 원문이 필요한 판단만 이 PC, 나머지는 가명화 문장으로 클라우드",
-             "무엇을 막고 무엇을 보낼지 — 보안 수준, 기준값, 주소 처리",
-             "화면 설계 — 써 보고 세 번 고침",
-             "범위 줄이기 — 파인튜닝 보류, 설문은 웹 체험판으로"]
-    for (head, items, band), (x, w) in zip([("AI(Claude Code)에게 맡긴 일", left, BAND), ("내가 판단하고 결정한 일", right, DARK)],
+    header(s, "개발 과정", "AI에게 맡긴 일과 제가 결정한 일을 나눴습니다")
+    left = ["기능마다 코드와 테스트를 함께 작성했습니다.",
+            "측정 프로그램을 만들고 결과를 분석했습니다.",
+            "새 도구(Ollaya, OpenAI)는 공식 문서부터 확인했습니다.",
+            "커밋마다 보안 검토를 하고 지적받은 곳을 고쳤습니다."]
+    right = ["원문이 필요한 판단만 이 PC에서 하도록 구조를 나눴습니다.",
+             "무엇을 막고 무엇을 보낼지 기준을 정했습니다.",
+             "화면을 직접 써 보고 세 번 고쳤습니다.",
+             "파인튜닝을 미루는 등 범위를 줄였습니다."]
+    for (head, items, band), (x, w) in zip([("AI(Claude Code)에게 맡긴 일", left, BAND), ("제가 판단하고 결정한 일", right, DARK)],
                                            columns(2)):
         bx, by, bw = card(s, x, TOP, w, 3.45, head, band=band)
         text(s, bx, by + 0.05, bw, 2.7, [[("·  ", {"bold": True}), (t, {})] for t in items], spacing=8, line=1.2,
              hang=HANG)
     strip = [(nums["days"], "커밋한 날"), (nums["decisions"], "설계 결정 기록"), (nums["ai_rows"], "AI 활용 기록"),
-             (nums["tests"], "자동 시험")]
+             (nums["tests"], "자동 테스트")]
     for (v, k), (x, w) in zip(strip, columns(4, gap=0.25)):
         bx, by, bw = card(s, x, 5.5, w, 1.3, k, band_h=0.42)
         text(s, bx, by - 0.08, bw, 0.65, v, size=T_STAT, bold=True, color=BLUE)
@@ -466,20 +470,20 @@ def s7_ai_dev(prs, nums):
 
 def s8_limits(prs):
     s = new_slide(prs)
-    header(s, "돌아보기", "한계와 다음 단계")
+    header(s, "돌아보기", "한계와 다음 단계입니다")
     (lx, lw), (rx, rw) = columns(2)
     bx, by, bw = card(s, lx, TOP, lw, 4.6, "한계", band=RED)
     text(s, bx, by, bw, 0.85, [[("33%", {"size": T_STAT, "bold": True, "color": RED}),
                                 ("   개인정보가 든 요청 중 막힌 비율", {"bold": True})]])
-    text(s, bx, by + 0.95, bw, 1.4, "테스트셋 19 / 57. 답이 실제 값에 달린 요청(주민번호로 나이 계산, 주소 확인)은 가린 글로 풀 수 없어 "
-                                    "밖으로 보내지 않고 막는다. 안전하지만 사용자는 그 일을 못 한다", line=1.25)
-    text(s, bx, by + 2.55, bw, 1.0, [[("·  ", {"bold": True, "color": RED}), ("이름 인식 99% — 붙여 쓴 이름은 놓칠 수 있다", {})],
-                                      [("·  ", {"bold": True, "color": RED}), ("전체 비용 절감은 요청 구성에 달린다", {})]],
+    text(s, bx, by + 0.95, bw, 1.5, "테스트셋에서는 57건 중 19건이 막혔습니다. 주민번호로 나이 계산처럼 실제 값이 있어야 답할 수 있는 "
+                                    "요청은 밖으로 보내지 않기 때문입니다. 안전하지만 사용자는 그 일을 할 수 없습니다.", line=1.25)
+    text(s, bx, by + 2.65, bw, 1.0, [[("·  ", {"bold": True, "color": RED}), ("붙여 쓴 이름은 놓칠 수 있습니다 (이름 인식 99%).", {})],
+                                      [("·  ", {"bold": True, "color": RED}), ("전체 비용 절감률은 요청 구성에 따라 달라집니다.", {})]],
          spacing=6, line=1.2, hang=HANG)
     bx, by, bw = card(s, rx, TOP, rw, 4.6, "다음 단계")
-    nexts = [("완전 로컬 모드", "막힌 요청은 밖으로 보내지 않고 이 PC의 작은 LLM이 처리"),
-             ("계산은 코드로", "나이·날짜 계산은 원본을 PC 안에서 코드가 풀고 결과만 LLM에"),
-             ("배포·사용자 평가", "웹 체험판 공개 중(11/14~) → 사용자 설문 10명 이상, 12/1까지")]
+    nexts = [("완전 로컬 모드", "막힌 요청을 밖으로 보내지 않고 이 PC의 작은 LLM이 처리합니다."),
+             ("계산은 코드로", "나이·날짜 계산은 PC 안에서 코드가 하고, 결과만 LLM에 보냅니다."),
+             ("사용자 평가", "웹 체험판으로 12월 1일까지 10명 이상에게 설문을 받습니다.")]
     y = by
     for i, (head, body) in enumerate(nexts, 1):
         text(s, bx, y - 0.04, 0.4, 0.45, str(i), size=T_HEAD, bold=True, color=BLUE)
@@ -502,17 +506,17 @@ def s9_end(prs):
     s = new_slide(prs)
     dark(s)
     text(s, 0.9, 1.7, 8.2, 1.0, "감사합니다", size=T_COVER, bold=True, color=WHITE)
-    text(s, 0.9, 2.95, 8.2, 0.5, "가림게이트 — 보안을 지키면서 아끼는 관문, API 주소 한 줄로", size=T_HEAD, color=WHITE)
+    text(s, 0.9, 2.95, 8.2, 0.5, "보안은 지키고 비용은 아끼는 관문, 가림게이트였습니다.", size=T_HEAD, color=WHITE)
     x = chip(s, 0.9, 3.85, "[고객1]", size=T_HEAD, h=0.46)
     x = chip(s, x + 0.15, 3.85, "[전화번호1]", size=T_HEAD, h=0.46)
     chip(s, x + 0.15, 3.85, "[주소1]", size=T_HEAD, h=0.46)
     # 설문 QR은 흰 상자 안에: 어두운 바탕에 바로 두면 QR 둘레의 흰 여백이 떠 보이고, 상자가 있어야 찍을 곳이 눈에 띈다
     cw, ch, qs = 3.3, 3.45, 2.3                           # 폭은 아래 설명(14pt)이 한 줄에 들어가게
     cx, cy = 12.43 - cw, 1.3
-    bx, by, bw = card(s, cx, cy, cw, ch, "써 보고 설문해 주세요", band=BLUE)
+    bx, by, bw = card(s, cx, cy, cw, ch, "직접 써 보고 설문해 주세요", band=BLUE)
     qr = s.shapes.add_picture(survey_qr(), Inches(cx + (cw - qs) / 2), Inches(by - 0.05), width=Inches(qs), height=Inches(qs))
     qr.name = "설문 QR"
-    text(s, cx, by + qs, cw, 0.35, "체험 + 설문 약 10분 · 가상 정보만", size=T_SMALL, align=PP_ALIGN.CENTER)
+    text(s, cx, by + qs, cw, 0.35, "약 10분 걸리고, 가상 정보만 씁니다.", size=T_SMALL, align=PP_ALIGN.CENTER)
     text(s, 0.9, 5.6, 6, 0.4, "github.com/baesanggue/ai-gateway", color=LIGHT)
     text(s, 6.9, 5.6, 5.53, 0.4, PRESENTER, color=WHITE, align=PP_ALIGN.RIGHT)
 
