@@ -203,8 +203,8 @@ uv run python -m bench.run_gateway --help   # 벤치마크 실행기 (docs/bench
 | M2 보안 기능 | 11/4~11/9 | 완료 (`v0.3-security`) |
 | M3 측정 | 11/10~11/11 | 완료 (`v0.4-bench`, 11/09) |
 | M4 화면·설치 | 11/12~11/14 | 완료 (`v0.5-demo`, 11/12, 새 폴더 리허설 통과) |
-| M5 발표 | 11/15~11/16 | 진행 중 (발표 자료·30초 시연 영상·결과보고서·Q&A 대비 완료) → 11/17 결과물 발표, `v1.0` |
-| M6 경진대회 | 11/18~12/1 | 웹 체험판 설문은 11/14부터(10명 이상, 발표 날 폼 QR, 결과는 12/8 제출, D30) → 12/2 경진대회 |
+| M5 발표 | 11/15~11/16 | 완료 (11/17 결과물 발표: 발표 자료·30초 시연 영상·결과보고서·Q&A 대비) |
+| M6 경진대회 | 11/18~12/1 | 웹 체험판 설문 11/14~11/17 마감(10명, 질문 23개, D31). 결과 PDF는 준비했고 제출은 12/6~7 → 12/2 경진대회 |
 
 진행 상황: [Milestones](https://github.com/baesanggue/ai-gateway/milestones) · [Issues](https://github.com/baesanggue/ai-gateway/issues)
 
@@ -218,7 +218,7 @@ uv run python -m bench.run_gateway --help   # 벤치마크 실행기 (docs/bench
 
 ## 문서
 
-- [설계 결정 기록](docs/decisions.md) — 9/29 계획(Spring Boot·React·Jev)에서 바뀐 점과 이유, D1~D30
+- [설계 결정 기록](docs/decisions.md) — 9/29 계획(Spring Boot·React·Jev)에서 바뀐 점과 이유, D1~D31
 - [AI 활용 기록](docs/ai-log.md) — AI에게 맡긴 일과 직접 결정한 것
 - [발표 Q&A 대비](docs/learning/qa-prep.md) — 처음 보는 사람에게 설명하기: 핵심 개념 넷과 예상 질문 · [한계](docs/limitations.md)
 - [발표 대본](docs/presentation/talk-script.md) — 11/17 5분 발표, 장별 시간·말할 것·비상시 대처 (발표자 노트가 여기서 만들어진다)
