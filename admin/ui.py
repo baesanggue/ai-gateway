@@ -100,7 +100,7 @@ div[data-testid="InputInstructions"] { display: none; }
 .gw-gsteps { display: flex; gap: 10px; }
 .st-key-guide .gw-gsteps { padding: 10px 12px 0; }
 .gw-gstep { flex: 1; background: #dbeafe; border-radius: 8px; padding: 9px 12px; }
-.gw-gstep:nth-child(2) { flex: 1.35; }
+.gw-gstep:nth-child(2) { flex: 1.2; }
 .gw-gstep .t { font-weight: 700; font-size: 0.95rem; color: #111827; }
 .gw-gstep .n { display: inline-block; width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background: #1e40af;
   color: #fff; text-align: center; font-size: 0.875rem; margin-right: 6px; }
