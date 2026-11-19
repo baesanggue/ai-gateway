@@ -66,6 +66,13 @@ def _pick(i: int, text: str) -> None:
     st.session_state.picked = i
 
 
+def _submit() -> None:
+    """보내기(Enter·단추). 보낼 문장을 꺼내 두고 입력 칸은 여기서 비운다. 폼의 clear_on_submit을 쓰면,
+    한 번 보낸 뒤 예시 단추로 넣은 문장이 칸에는 보이는데 보낼 때는 빈 값으로 나갔다 (11/19 화면 확인)."""
+    st.session_state.outgoing = st.session_state.cli_text.strip()
+    st.session_state.cli_text = ""
+
+
 def _examples(examples) -> None:
     """번호 붙은 예시 단추 (#131, 설문 D31: 10명 중 5명이 처음에 할 일을 몰랐다). 예시는 업종 프리셋의 display.examples.
     보낸 것은 초록 '완료', 다음에 할 것은 굵은 테두리. 상자 어디를 눌러도 단추가 눌린다(ui.CSS의 exbox)."""
@@ -168,18 +175,17 @@ def page() -> None:
     with left:
         st.markdown("<div class='gw-label'>챗봇 (기존 서비스)</div>", unsafe_allow_html=True)
         st.markdown(_terminal(turns, bool(examples)), unsafe_allow_html=True)
-        with st.container(key="cli_box"), st.form("cli", clear_on_submit=True, border=False):   # 터미널 모양은 이 칸에만 (ui.CSS)
+        with st.container(key="cli_box"), st.form("cli", border=False):   # 터미널 모양은 이 칸에만 (ui.CSS)
             prompt, field, button = st.columns([0.3, 4, 1.5], vertical_alignment="center", gap="small")
             prompt.markdown("<div class='gw-prompt'>›</div>", unsafe_allow_html=True)
-            text = field.text_input("메시지", placeholder="여기에 입력하고 Enter", label_visibility="collapsed",
-                                    key="cli_text")
-            sent = button.form_submit_button("보내기", type="primary", width="stretch")
-        if sent and text.strip():
+            field.text_input("메시지", placeholder="여기에 입력하고 Enter", label_visibility="collapsed", key="cli_text")
+            button.form_submit_button("보내기", type="primary", width="stretch", on_click=_submit)
+        if text := st.session_state.pop("outgoing", ""):
             if (refused := beta.allow_request(s)) is not None:      # 체험판 사용량 (#90)
                 st.session_state.beta_notice = refused
             else:
                 with st.spinner("게이트웨이가 처리하는 중"):
-                    _send(s, text.strip())
+                    _send(s, text)
                 beta.remember(st.session_state.turns[-1]["request_id"])
                 if st.session_state.picked is not None:            # 예시를 고쳐서 보내도 그 예시는 해 본 것으로 (#131)
                     st.session_state.tried.add(st.session_state.picked)
