@@ -52,7 +52,7 @@ def page() -> None:
                      hide_index=True)
     with right:
         st.markdown("<div class='gw-label'>가명화된 텍스트 (외부 AI에 붙여넣어도 되는 글)</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='gw-panel out' style='max-height:340px;overflow-y:auto;white-space:pre-wrap'>"
+        st.markdown(f"<div class='gw-panel out' style='height:auto;max-height:340px;padding-top:8px;white-space:pre-wrap'>"
                     f"{html.escape(rep['masked_text'][:20000])}</div>", unsafe_allow_html=True)
         st.download_button("가명화된 텍스트 내려받기", rep["masked_text"].encode("utf-8"),
                            file_name=upload.name.rsplit(".", 1)[0] + "-가명화.txt", mime="text/plain")

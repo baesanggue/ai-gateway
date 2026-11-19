@@ -123,4 +123,4 @@ def test_first_screen_guide_shows_until_closed(screen_env):
     assert any("처음 쓰시나요" in m.value for m in at.markdown)     # 요청이 없으면 펼친 안내
     at.button(key="guide_close").click().run()
     assert not any("처음 쓰시나요" in m.value for m in at.markdown)
-    assert [e.label for e in at.expander] == ["처음 쓰는 방법 보기"]   # 닫으면 접힌 한 줄
+    assert any("gw-gsteps" in m.value for m in at.markdown)          # 닫아도 제목 줄의 작은 창에서 다시 본다

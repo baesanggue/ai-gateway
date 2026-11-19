@@ -20,6 +20,15 @@ from admin.ui import NUMS, ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
 TOKEN = re.compile(r"\[[^\[\]\s]{1,12}\d+\]")
+# 1200×800 창에서 화면 전체가 스크롤되지 않게 (11/09 의견). 예시 단추 줄(#131)이 들어간 만큼 칸 높이와 간격을 줄였다
+STEPS_HEIGHT = 222
+COMPACT = """<style>
+[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: 0.5rem; }
+[data-testid="stMainBlockContainer"] .st-key-steps { gap: 1.1rem; }
+.gw-term { height: 180px; }
+.st-key-cli_box { margin-top: -0.5rem; }
+.gw-panel { height: 108px; }
+</style>"""
 FOCUS = """<script>
 setTimeout(() => {
   const doc = (window.parent && window.parent.document) || document;
@@ -120,8 +129,8 @@ def _panels(row: dict | None, turn: dict) -> str:
                 else TOKEN.sub(lambda m: f"<span class='gw-tok'>{m.group()}</span>", html.escape(out)))
     answer = answer_html(turn["answer"]) or "<span class='none'>-</span>"
     return ("<div style='display:flex;gap:10px'>"
-            f"<div class='gw-panel out' style='flex:1'><h4>외부 AI 서버로 나간 텍스트</h4>{out_html}</div>"
-            f"<div class='gw-panel in' style='flex:1'><h4>사용자가 받은 답변 (이 PC에서 복원)</h4>"
+            f"<div class='gw-panel out' style='flex:1'><div class='hd'>외부 AI 서버로 나간 텍스트</div>{out_html}</div>"
+            f"<div class='gw-panel in' style='flex:1'><div class='hd'>사용자가 받은 답변 (이 PC에서 복원)</div>"
             f"<div style='white-space:pre-wrap'>{answer}</div></div></div>")
 
 
@@ -149,7 +158,8 @@ def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
     if row is None:
         st.warning("이 요청의 기록을 찾지 못했습니다 (게이트웨이 연결 실패).")
         return
-    steps_view(row, s.config.decision.thresholds, height=300, key="steps", rate=s.config.display.krw_per_usd)   # 단계가 길어도 이 칸 안에서만 스크롤
+    steps_view(row, s.config.decision.thresholds, height=STEPS_HEIGHT, key="steps",
+               rate=s.config.display.krw_per_usd)                  # 단계가 길어도 이 칸 안에서만 스크롤
 
 
 def page() -> None:
@@ -157,6 +167,7 @@ def page() -> None:
     examples = s.config.display.examples
     page_header("시연", f"기존 챗봇은 요청을 보내는 주소만 가림게이트(<code>{gateway_url(s)}/v1</code>)로 바꿨습니다."
                 + (" 아래 예시를 번호 순서대로 보내 보세요." if examples else ""))
+    st.markdown(COMPACT, unsafe_allow_html=True)
     st.session_state.setdefault("turns", [])
     st.session_state.setdefault("selected", None)
     st.session_state.setdefault("tried", set())          # 보낸 예시 번호 (#131)
