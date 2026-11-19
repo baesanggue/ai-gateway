@@ -10,6 +10,9 @@ import html
 import re
 from dataclasses import dataclass, field
 
+from admin.money import krw
+from gateway.config import DisplayConfig
+
 BOLD = re.compile(r"\*\*(\S(?:[^\n]*?\S)?)\*\*")   # 한 줄 안의 **굵게**. 공백으로 감싼 별표("2 ** 3")는 아니다
 
 
@@ -87,8 +90,9 @@ def outbound_text(row: dict) -> str | None:
     return row.get("text_masked")
 
 
-def build_steps(row: dict, thresholds: dict[str, float]) -> list[Step]:
-    """요청 로그 한 줄(RequestLog.get) → 다섯 단계."""
+def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = None) -> list[Step]:
+    """요청 로그 한 줄(RequestLog.get) → 다섯 단계. rate: 비용을 원화로 보여 줄 환율(없으면 설정 기본값, #132)."""
+    rate = rate or DisplayConfig().krw_per_usd
     reasons = row.get("reasons") or []
     route = row.get("route")
     judgments = row.get("judgments") or {}
@@ -146,11 +150,11 @@ def build_steps(row: dict, thresholds: dict[str, float]) -> list[Step]:
     if route == "block":
         route_summary = f"막고 안내했습니다: {REASON_KO.get(reasons[0], reasons[0]) if reasons else ''}"
     elif route == "template":
-        route_summary = "정해 둔 답으로 바로 답했습니다 · 비용 0"
+        route_summary = "정해 둔 답으로 바로 답했습니다 · 비용 0원"
     else:
         route_summary = f"{ROUTE_KO.get(route, route)}({row.get('model') or ''})으로 보냈습니다"
     route_details = [("이유", " · ".join(REASON_KO.get(r, r) for r in reasons) or "-"),
-                     ("비용", f"${cost:.4f} (전부 고성능이었다면 ${base:.4f})")]
+                     ("비용", f"{krw(cost, rate)} (전부 고성능이었다면 {krw(base, rate)})")]
     if row.get("prompt_tokens") or row.get("completion_tokens"):
         route_details.append(("토큰", f"입력 {row.get('prompt_tokens', 0)} · 출력 {row.get('completion_tokens', 0)}"))
     if row.get("total_latency_ms") is not None:

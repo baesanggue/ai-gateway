@@ -40,6 +40,10 @@ h1.gw-title { font-size: 1.35rem; margin: 0 0 0.1rem 0; padding: 0; }
 .gw-metric .d { font-size: 0.72rem; color: var(--gw-sub); }
 .gw-metric.save { background: #ecfdf5; border-color: #a7f3d0; }
 .gw-metric.save .v { color: #047857; }
+/* 비용을 한 문장으로 (#132). 회색 글씨 대신 진한 글씨와 초록 띠 (발표 자료와 같은 읽기 쉬움 규칙) */
+.gw-saving { margin: -0.35rem 0 0.8rem 0; padding: 7px 12px; border-left: 4px solid #047857; background: #ecfdf5;
+  border-radius: 6px; font-size: 0.9rem; color: #111827; font-weight: 600; }
+.gw-saving span { display: block; font-size: 0.78rem; font-weight: 400; color: #1f2937; margin-top: 2px; }
 
 /* 터미널(챗봇) */
 .gw-term { background: #1e1f24; color: #e5e7eb; font-family: var(--gw-mono); font-size: 0.82rem;
@@ -148,11 +152,12 @@ def step_card(n: int, step) -> str:
             f"<div class='s'>{html.escape(step.summary)}</div></div>")
 
 
-def steps_view(row: dict, thresholds: dict, height: int, key: str) -> None:
-    """처리 과정 다섯 단계 카드. 이 칸 안에서만 스크롤하고, 자세히는 정보 아이콘의 작은 창으로 띄운다 (11/09 의견)."""
+def steps_view(row: dict, thresholds: dict, height: int, key: str, rate: float | None = None) -> None:
+    """처리 과정 다섯 단계 카드. 이 칸 안에서만 스크롤하고, 자세히는 정보 아이콘의 작은 창으로 띄운다 (11/09 의견).
+    rate: 비용을 원화로 보여 줄 환율 (#132, display.krw_per_usd)."""
     from admin.flow import build_steps
     with st.container(height=height, border=False, key=key):
-        for n, step in enumerate(build_steps(row, thresholds), 1):
+        for n, step in enumerate(build_steps(row, thresholds, rate=rate), 1):
             card, more = st.columns([6, 0.7], vertical_alignment="center", gap="small")
             card.markdown(step_card(n, step), unsafe_allow_html=True)
             if step.details:

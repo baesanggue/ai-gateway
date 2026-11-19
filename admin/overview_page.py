@@ -13,6 +13,7 @@ import streamlit as st
 
 from admin import beta
 from admin.flow import REASON_KO, ROUTE_KO
+from admin.money import krw, rate_line, saving_sentence
 from admin.stats import summarize
 from admin.ui import bars, page_header, settings
 from gateway.storage.log import RequestLog
@@ -20,7 +21,7 @@ from gateway.storage.log import RequestLog
 ROUTES = ("template", "cheap", "premium", "block")
 
 
-def _tiles(t: dict, b: dict) -> str:
+def _tiles(t: dict, b: dict, rate: float, note: str) -> str:
     base, cost = t["baseline_cost_usd"], t["cost_usd"]
     saved = f"{1 - cost / base:.0%}" if base else "-"
     by_route = t["by_route"]
@@ -31,11 +32,13 @@ def _tiles(t: dict, b: dict) -> str:
             f"<div class='gw-metric'><div class='k'>처리한 요청</div><div class='v'>{t['requests']}건</div>"
             f"<div class='d'>오늘 {b['today']}건</div></div>"
             f"<div class='gw-metric save'><div class='k'>비용 절감</div><div class='v'>{saved}</div>"
-            f"<div class='d'>기존 방식 ${base:.4f} → 게이트웨이 ${cost:.4f}</div></div>"
+            f"<div class='d'>기존 방식 {krw(base, rate)} → 가림게이트 {krw(cost, rate)}</div></div>"
             f"<div class='gw-metric'><div class='k'>LLM 없이 끝남</div><div class='v'>{no_llm}건</div>"
             f"<div class='d'>템플릿 {by_route.get('template', 0)} · 막음 {by_route.get('block', 0)}</div></div>"
             f"<div class='gw-metric'><div class='k'>가린 개인정보</div><div class='v'>{sum(b['pii'].values())}개</div>"
-            f"<div class='d'>{html.escape(pii_top)}</div></div></div>")
+            f"<div class='d'>{html.escape(pii_top)}</div></div></div>"
+            f"<div class='gw-saving'>{html.escape(saving_sentence(cost, base, t['requests'], rate))}"
+            f"<span>{html.escape(rate_line(rate, note))}</span></div>")
 
 
 def _box(title: str, body: str) -> str:
@@ -56,7 +59,8 @@ def page() -> None:
     else:
         page_header("현황", "게이트웨이를 거친 모든 요청의 누적입니다. 요청 기록에는 가명화된 문장만 남습니다.")
         t, b, recent = log.totals(), log.breakdown(), log.recent(5)
-    st.markdown(_tiles(t, b), unsafe_allow_html=True)
+    rate = s.config.display.krw_per_usd
+    st.markdown(_tiles(t, b, rate, s.config.display.rate_note), unsafe_allow_html=True)
 
     left, right = st.columns(2, gap="medium")
     route_items = [(ROUTE_KO[r], t["by_route"].get(r, 0)) for r in ROUTES]
@@ -78,5 +82,5 @@ def page() -> None:
         "시각": [_time(r["created_at"]) for r in recent],
         "경로": [ROUTE_KO.get(r["route"], r["route"]) for r in recent],
         "요청 (가명화된 문장)": [r["text_masked"] or "(가리지 못한 값이 있어 남기지 않음)" for r in recent],
-        "비용": [f"${r['cost_usd']:.5f}" for r in recent],
+        "비용": [krw(r['cost_usd'], rate) for r in recent],
     }, hide_index=True, width="stretch", height=213)
