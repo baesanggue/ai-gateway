@@ -4,6 +4,7 @@
 - 숫자 카드 넷: 처리한 요청, 비용(기존 방식 vs 게이트웨이), LLM을 부르지 않고 끝난 요청, 가린 개인정보
 - 경로별 요청과 막은 이유: 가로 막대 (한 계열이라 한 색, 값은 옆에 글자로)
 - 최근 요청 다섯 건 → 요청 기록 메뉴에서 전부 본다
+- 맨 위 첫 화면 안내 (#131): 요청이 없으면 세 단계를 펼쳐 두고, 있으면 제목 줄의 "처음 쓰는 방법" 작은 창으로 접는다
 비용은 LLM 비용 기준이다. 판단 API 비용은 190행에 $0.01로 작아(#59) 넣지 않았다.
 """
 import html
@@ -15,7 +16,7 @@ from admin import beta
 from admin.flow import REASON_KO, ROUTE_KO
 from admin.money import krw, rate_line, saving_sentence
 from admin.stats import summarize
-from admin.ui import bars, page_header, settings
+from admin.ui import NUMS, bars, page_header, settings
 from gateway.storage.log import RequestLog
 
 ROUTES = ("template", "cheap", "premium", "block")
@@ -41,8 +42,47 @@ def _tiles(t: dict, b: dict, rate: float, note: str) -> str:
             f"<span>{html.escape(rate_line(rate, note))}</span></div>")
 
 
+def _steps_html(examples) -> str:
+    """처음 쓰는 사람을 위한 세 단계 (#131). 2단계는 업종 프리셋의 시연 예시(display.examples)로 채운다."""
+    flow = " → ".join(f"{NUMS[i]} {html.escape(e.title)}" for i, e in enumerate(examples))
+    second = (("예시를 차례로 보냅니다", f"{flow}. 누르면 문장이 입력 칸에 들어가고, Enter로 보냅니다.")
+              if examples else ("요청을 보내 봅니다", "입력 칸에 요청을 쓰고 Enter를 누릅니다."))
+    steps = [("시연 메뉴를 엽니다", "왼쪽 메뉴의 <b>시연</b>입니다. 기존 챗봇이 가림게이트를 거쳐 답하는 화면입니다."),
+             second,
+             ("무엇이 가려졌는지 봅니다", "외부로 나간 글과 받은 답변을 비교하고, 이 화면에서 아낀 비용을 확인합니다.")]
+    return "<div class='gw-gsteps'>" + "".join(
+        f"<div class='gw-gstep'><div class='t'><span class='n'>{n}</span>{title}</div><div class='s'>{body}</div></div>"
+        for n, (title, body) in enumerate(steps, 1)) + "</div>"
+
+
+def _close_guide() -> None:
+    st.session_state.guide_closed = True
+
+
+def _header_and_guide(note: str, requests: int, examples) -> None:
+    """제목과 첫 화면 안내 (#131, 11/19 사용자 선택 A). 아직 요청이 없으면 제목 아래에 세 단계를 펼쳐 두고,
+    요청이 생기거나 닫으면 제목 줄 오른쪽의 "처음 쓰는 방법" 작은 창으로 접는다(화면 높이를 쓰지 않게).
+    닫은 것은 이 브라우저 세션에서만 기억한다."""
+    from admin.nav import pages
+    if requests == 0 and not st.session_state.get("guide_closed"):
+        page_header("현황", note)
+        with st.container(key="guide"):
+            st.markdown("<div class='gw-guide-hd'>처음 쓰시나요? 세 단계면 가림게이트가 하는 일을 볼 수 있습니다</div>"
+                        + _steps_html(examples), unsafe_allow_html=True)
+            go, close, _ = st.columns([1.4, 0.6, 4], vertical_alignment="center", gap="small")
+            go.page_link(pages()["demo"], label="시연 시작하기", icon=":material/arrow_forward:")
+            close.button("닫기", key="guide_close", on_click=_close_guide)
+        return
+    head, more = st.columns([3.4, 1.2], vertical_alignment="center")
+    with head:
+        page_header("현황", note)
+    with more.popover("처음 쓰는 방법", icon=":material/help:", width="stretch"):
+        st.markdown(_steps_html(examples), unsafe_allow_html=True)
+        st.page_link(pages()["demo"], label="시연 시작하기", icon=":material/arrow_forward:")
+
+
 def _box(title: str, body: str) -> str:
-    return f"<div class='gw-box'><h4>{title}</h4>{body}</div>"
+    return f"<div class='gw-box'><div class='hd'>{title}</div><div class='bd'>{body}</div></div>"
 
 
 def _time(iso: str) -> str:
@@ -53,12 +93,13 @@ def page() -> None:
     s = settings()
     log = RequestLog.from_config(s.config.storage)
     if beta.enabled(s):                                   # 체험판: 내가 보낸 요청만 (#90)
-        page_header("현황", "체험판: 내가 보낸 요청만 보입니다. 요청 기록에는 가명화된 문장만 남습니다.")
+        note = "체험판: 내가 보낸 요청만 보입니다. 가명화된 문장만 남습니다."
         mine = beta.my_rows(log)
         (t, b), recent = summarize(mine), mine[:5]
     else:
-        page_header("현황", "게이트웨이를 거친 모든 요청의 누적입니다. 요청 기록에는 가명화된 문장만 남습니다.")
+        note = "모든 요청의 누적입니다. 기록에는 가명화된 문장만 남습니다."
         t, b, recent = log.totals(), log.breakdown(), log.recent(5)
+    _header_and_guide(note, t["requests"], s.config.display.examples)
     rate = s.config.display.krw_per_usd
     st.markdown(_tiles(t, b, rate, s.config.display.rate_note), unsafe_allow_html=True)
 

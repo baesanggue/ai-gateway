@@ -16,15 +16,24 @@ from openai import OpenAI, OpenAIError
 from admin import beta
 from admin.flow import answer_html, outbound_text, session_totals
 from admin.money import krw, rate_line, saving_sentence
-from admin.ui import ROOT, gateway_url, page_header, settings, steps_view
+from admin.ui import NUMS, ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
 TOKEN = re.compile(r"\[[^\[\]\s]{1,12}\d+\]")
+# 1200×800 창에서 화면 전체가 스크롤되지 않게 (11/09 의견). 예시 단추 줄(#131)이 들어간 만큼 칸 높이와 간격을 줄였다
+STEPS_HEIGHT = 222
+COMPACT = """<style>
+[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: 0.5rem; }
+[data-testid="stMainBlockContainer"] .st-key-steps { gap: 1.1rem; }
+.gw-term { height: 180px; }
+.st-key-cli_box { margin-top: -0.5rem; }
+.gw-panel { height: 108px; }
+</style>"""
 FOCUS = """<script>
 setTimeout(() => {
   const doc = (window.parent && window.parent.document) || document;
   const el = doc.querySelector('input[aria-label="메시지"]');
-  if (el && doc.activeElement !== el) el.focus();
+  if (el && doc.activeElement !== el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }, 250);
 </script>"""
 
@@ -59,6 +68,33 @@ def _send(s, text: str) -> None:
     st.session_state.selected = len(st.session_state.turns) - 1
 
 
+def _pick(i: int, text: str) -> None:
+    """예시 단추 (#131): 문장을 입력 칸에 넣기만 한다. 보내는 것은 사용자가 Enter로 (11/19 사용자 선택:
+    어디에 쓰는지 익히고, 고쳐서 보낼 수도 있게). 단추 콜백은 입력 칸을 그리기 전에 돌아서 값을 바꿀 수 있다."""
+    st.session_state.cli_text = text
+    st.session_state.picked = i
+
+
+def _submit() -> None:
+    """보내기(Enter·단추). 보낼 문장을 꺼내 두고 입력 칸은 여기서 비운다. 폼의 clear_on_submit을 쓰면,
+    한 번 보낸 뒤 예시 단추로 넣은 문장이 칸에는 보이는데 보낼 때는 빈 값으로 나갔다 (11/19 화면 확인)."""
+    st.session_state.outgoing = st.session_state.cli_text.strip()
+    st.session_state.cli_text = ""
+
+
+def _examples(examples) -> None:
+    """번호 붙은 예시 단추 (#131, 설문 D31: 10명 중 5명이 처음에 할 일을 몰랐다). 예시는 업종 프리셋의 display.examples.
+    보낸 것은 초록 '완료', 다음에 할 것은 굵은 테두리. 상자 어디를 눌러도 단추가 눌린다(ui.CSS의 exbox)."""
+    tried = st.session_state.tried
+    nxt = next((i for i in range(len(examples)) if i not in tried), None)
+    for i, (col, ex) in enumerate(zip(st.columns(len(examples), gap="small"), examples)):
+        state = "done" if i in tried else "next" if i == nxt else "todo"
+        with col.container(key=f"exbox_{state}_{i}"):
+            st.button(f"{NUMS[i]} {ex.title}" + (" · 완료" if state == "done" else ""), key=f"exbtn_{i}",
+                      on_click=_pick, args=(i, ex.text), help=ex.text)
+            st.markdown(f"<div class='gw-ex-desc'>{html.escape(ex.desc)}</div>", unsafe_allow_html=True)
+
+
 def _metrics(logged: list[dict], rate: float, note: str) -> str:
     """비용 카드 세 장 + 읽히는 한 문장 (#132: 설문에서 비용 표시가 3.0점으로 가장 낮았다). 금액은 원화."""
     cost, base = session_totals(logged)
@@ -74,9 +110,11 @@ def _metrics(logged: list[dict], rate: float, note: str) -> str:
             f"<span>{html.escape(rate_line(rate, note))}</span></div>")
 
 
-def _terminal(turns: list[dict]) -> str:
+def _terminal(turns: list[dict], has_examples: bool) -> str:
     if not turns:
-        body = "<div class='empty'>아래 › 칸에 메시지를 입력하고 Enter를 누르세요. 이 챗봇은 게이트웨이를 거쳐 답합니다.</div>"
+        first = ("위의 ① 단추를 누르면 문장이 아래 › 칸에 들어갑니다. Enter를 누르면 보냅니다." if has_examples
+                 else "아래 › 칸에 메시지를 입력하고 Enter를 누르세요.")
+        body = f"<div class='empty'>{first} 이 챗봇은 가림게이트를 거쳐 답합니다.</div>"
     else:
         body = "".join(
             f"<div><span class='meta'>[{i}]</span> <span class='u'>&gt; {html.escape(t['user'])}</span></div>"
@@ -91,8 +129,8 @@ def _panels(row: dict | None, turn: dict) -> str:
                 else TOKEN.sub(lambda m: f"<span class='gw-tok'>{m.group()}</span>", html.escape(out)))
     answer = answer_html(turn["answer"]) or "<span class='none'>-</span>"
     return ("<div style='display:flex;gap:10px'>"
-            f"<div class='gw-panel out' style='flex:1'><h4>외부 AI 서버로 나간 텍스트</h4>{out_html}</div>"
-            f"<div class='gw-panel in' style='flex:1'><h4>사용자가 받은 답변 (이 PC에서 복원)</h4>"
+            f"<div class='gw-panel out' style='flex:1'><div class='hd'>외부 AI 서버로 나간 텍스트</div>{out_html}</div>"
+            f"<div class='gw-panel in' style='flex:1'><div class='hd'>사용자가 받은 답변 (이 PC에서 복원)</div>"
             f"<div style='white-space:pre-wrap'>{answer}</div></div></div>")
 
 
@@ -120,14 +158,20 @@ def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
     if row is None:
         st.warning("이 요청의 기록을 찾지 못했습니다 (게이트웨이 연결 실패).")
         return
-    steps_view(row, s.config.decision.thresholds, height=300, key="steps", rate=s.config.display.krw_per_usd)   # 단계가 길어도 이 칸 안에서만 스크롤
+    steps_view(row, s.config.decision.thresholds, height=STEPS_HEIGHT, key="steps",
+               rate=s.config.display.krw_per_usd)                  # 단계가 길어도 이 칸 안에서만 스크롤
 
 
 def page() -> None:
     s = settings()
-    page_header("시연", f"기존 챗봇의 API 주소만 게이트웨이(<code>{gateway_url(s)}/v1</code>)로 바꾼 상태입니다.")
+    examples = s.config.display.examples
+    page_header("시연", f"기존 챗봇은 요청을 보내는 주소만 가림게이트(<code>{gateway_url(s)}/v1</code>)로 바꿨습니다."
+                + (" 아래 예시를 번호 순서대로 보내 보세요." if examples else ""))
+    st.markdown(COMPACT, unsafe_allow_html=True)
     st.session_state.setdefault("turns", [])
     st.session_state.setdefault("selected", None)
+    st.session_state.setdefault("tried", set())          # 보낸 예시 번호 (#131)
+    st.session_state.setdefault("picked", None)          # 입력 칸에 넣은 예시 번호. 보내면 tried로 옮긴다
     turns = st.session_state.turns
     log = RequestLog.from_config(s.config.storage)
     rows = [log.get(t["request_id"]) if t["request_id"] else None for t in turns]
@@ -136,22 +180,27 @@ def page() -> None:
         st.warning(notice)
     st.markdown(_metrics([r for r in rows if r], s.config.display.krw_per_usd, s.config.display.rate_note),
                 unsafe_allow_html=True)
+    if examples:
+        _examples(examples)
     left, right = st.columns([1.1, 1], gap="medium")
     with left:
         st.markdown("<div class='gw-label'>챗봇 (기존 서비스)</div>", unsafe_allow_html=True)
-        st.markdown(_terminal(turns), unsafe_allow_html=True)
-        with st.container(key="cli_box"), st.form("cli", clear_on_submit=True, border=False):   # 터미널 모양은 이 칸에만 (ui.CSS)
+        st.markdown(_terminal(turns, bool(examples)), unsafe_allow_html=True)
+        with st.container(key="cli_box"), st.form("cli", border=False):   # 터미널 모양은 이 칸에만 (ui.CSS)
             prompt, field, button = st.columns([0.3, 4, 1.5], vertical_alignment="center", gap="small")
             prompt.markdown("<div class='gw-prompt'>›</div>", unsafe_allow_html=True)
-            text = field.text_input("메시지", placeholder="여기에 입력하고 Enter", label_visibility="collapsed")
-            sent = button.form_submit_button("보내기", type="primary", width="stretch")
-        if sent and text.strip():
+            field.text_input("메시지", placeholder="여기에 입력하고 Enter", label_visibility="collapsed", key="cli_text")
+            button.form_submit_button("보내기", type="primary", width="stretch", on_click=_submit)
+        if text := st.session_state.pop("outgoing", ""):
             if (refused := beta.allow_request(s)) is not None:      # 체험판 사용량 (#90)
                 st.session_state.beta_notice = refused
             else:
                 with st.spinner("게이트웨이가 처리하는 중"):
-                    _send(s, text.strip())
+                    _send(s, text)
                 beta.remember(st.session_state.turns[-1]["request_id"])
+                if st.session_state.picked is not None:            # 예시를 고쳐서 보내도 그 예시는 해 본 것으로 (#131)
+                    st.session_state.tried.add(st.session_state.picked)
+                    st.session_state.picked = None
             st.rerun()
     with right:
         _process(s, turns, rows)
