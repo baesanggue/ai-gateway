@@ -17,6 +17,7 @@ from gateway.config import load_settings  # noqa: E402
 
 LEVEL_KO = {"basic": "기본", "strict": "엄격", "local": "완전 로컬"}
 PRESET_KO = {"shop": "쇼핑몰", "medical": "병원", "school": "학교", None: "없음"}
+NUMS = "①②③④"            # 시연 예시 단추·첫 화면 안내의 번호 (#131). 예시는 넷까지 (DisplayConfig.examples)
 
 CSS = """
 <style>
@@ -62,7 +63,41 @@ div[data-testid="InputInstructions"] { display: none; }
   font-family: var(--gw-mono); background: #2b2d35 !important; color: #f9fafb !important; caret-color: #93c5fd; }
 .st-key-cli_box div[data-testid="stForm"] input::placeholder { color: #9ca3af; opacity: 1; }
 .gw-prompt { font-family: var(--gw-mono); color: #93c5fd; font-size: 1.3rem; font-weight: 700; text-align: center; }
+/* 번호 붙은 예시 단추 (#131): 상자 전체가 단추. 단추의 ::after를 상자 크기로 늘려 설명 글을 눌러도 눌린다 */
+[class*="st-key-exbox_"] { position: relative; border: 2px solid #1e40af; border-radius: 8px; padding: 5px 10px 6px;
+  background: #fff; gap: 0; margin-bottom: 0.5rem; }
+[class*="st-key-exbox_"] [data-testid="stElementContainer"], [class*="st-key-exbox_"] .stButton,
+[class*="st-key-exbox_"] [data-testid="stTooltipHoverTarget"], [class*="st-key-exbox_"] button { position: static; }
+[class*="st-key-exbox_"] button { border: none; background: transparent; padding: 0; min-height: 0; width: 100%;
+  justify-content: flex-start; box-shadow: none; }
+[class*="st-key-exbox_"] button::after { content: ""; position: absolute; inset: 0; border-radius: 8px; }
+[class*="st-key-exbox_"] button p { font-size: 0.95rem; font-weight: 700; color: #111827; }
+[class*="st-key-exbox_"]:hover { background: #dbeafe; }
+.gw-ex-desc { font-size: 0.875rem; color: #1f2937; line-height: 1.35; }
+[class*="st-key-exbox_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+[class*="st-key-exbox_done_"] { border-color: #0f7b5a; background: #d1fae5; }
+[class*="st-key-exbox_done_"] button p { color: #065f46; }
+[class*="st-key-exbox_next_"] { border-width: 3px; box-shadow: 0 0 0 3px #bfdbfe; }
 .gw-hint { font-size: 0.82rem; color: var(--gw-sub); border: 1px dashed var(--gw-line); border-radius: 8px; padding: 14px; }
+
+/* 첫 화면 안내 (#131): 남색 머리 띠 상자 안에 세 단계 */
+.st-key-guide { border: 2px solid #0f1e3d; border-radius: 8px; overflow: hidden; gap: 0.5rem; padding-bottom: 10px;
+  margin-bottom: 0.6rem; }
+.gw-guide-hd { background: #0f1e3d; color: #fff; font-weight: 700; font-size: 0.95rem; padding: 6px 14px; }
+.gw-gsteps { display: flex; gap: 10px; }
+.st-key-guide .gw-gsteps { padding: 10px 12px 0; }
+.gw-gstep { flex: 1; background: #dbeafe; border-radius: 8px; padding: 9px 12px; }
+.gw-gstep:nth-child(2) { flex: 1.35; }
+.gw-gstep .t { font-weight: 700; font-size: 0.95rem; color: #111827; }
+.gw-gstep .n { display: inline-block; width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background: #1e40af;
+  color: #fff; text-align: center; font-size: 0.875rem; margin-right: 6px; }
+.gw-gstep .s { font-size: 0.875rem; color: #111827; margin-top: 5px; line-height: 1.5; }
+.st-key-guide [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+.st-key-guide [data-testid="stHorizontalBlock"] { padding: 0 12px; }
+.st-key-guide [data-testid="stPageLink"] a { background: #1d4ed8; border-radius: 6px; padding: 4px 12px; }
+.st-key-guide [data-testid="stPageLink"] a p, .st-key-guide [data-testid="stPageLink"] a span { color: #fff !important; font-weight: 700; }
+.st-key-guide button { border: 2px solid #1f2937; }
+.st-key-guide button p { color: #111827; font-weight: 700; }
 
 /* 처리 과정 */
 .st-key-steps, .st-key-log_steps { overflow-x: hidden; }
