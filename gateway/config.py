@@ -161,10 +161,19 @@ class StorageConfig(BaseModel):
     sqlite_path: str
 
 
+class DemoExample(BaseModel):
+    """시연 화면의 번호 붙은 예시 단추 하나 (#131). 누르면 text가 입력 칸에 들어간다."""
+    title: str                       # 단추 이름 ("배송 문의")
+    desc: str                        # 단추 아래 한 줄: 이 예시로 무엇을 보게 되는지
+    text: str                        # 입력 칸에 넣을 문장 (이름·번호는 가상 값만)
+
+
 class DisplayConfig(BaseModel):
-    """화면에 비용을 원화로 보여 줄 때 쓰는 환율 (#132). 기록(DB)·측정 문서는 달러 그대로 두고 보여 줄 때만 바꾼다."""
+    """화면에 보이는 것. 기록(DB)·측정 문서는 달러 그대로 두고 보여 줄 때만 원화로 바꾼다 (#132).
+    시연 예시는 업종마다 달라 프리셋(config/presets/<이름>.yaml)의 display.examples에 둔다 (#131)."""
     krw_per_usd: float = Field(default=1340.0, gt=0)     # 2026-11-11 하나은행 종가 1,337.5원을 반올림
     rate_note: str = "2026년 11월 기준"                    # 화면에 환율과 함께 적는 기준일
+    examples: list[DemoExample] = Field(default_factory=list, max_length=4)   # 한 줄에 넷까지
 
 
 class BetaConfig(BaseModel):
