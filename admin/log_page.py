@@ -10,6 +10,7 @@ import streamlit as st
 
 from admin import beta
 from admin.flow import REASON_KO, ROUTE_KO
+from admin.money import krw
 from admin.ui import LEVEL_KO, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
@@ -25,7 +26,7 @@ def _pii(counts: dict) -> str:
     return " · ".join(f"{k} {n}" for k, n in counts.items()) or "-"
 
 
-def _detail(row: dict) -> str:
+def _detail(row: dict, rate: float) -> str:
     reasons = " · ".join(REASON_KO.get(r, r) for r in row["reasons"]) or "-"
     model = row["model"] or "LLM 안 씀"
     tokens = f"{row['prompt_tokens']} → {row['completion_tokens']}" if row["model"] else "-"
@@ -35,7 +36,7 @@ def _detail(row: dict) -> str:
             f"<span>가린 개인정보</span><b>{html.escape(_pii(row['pii_counts']))}</b>"
             f"<span>경로</span><b>{ROUTE_KO.get(row['route'], row['route'])} ({html.escape(reasons)})</b>"
             f"<span>모델 · 토큰</span><b>{html.escape(model)} · {tokens}</b>"
-            f"<span>비용</span><b>${row['cost_usd']:.5f} (기존 방식 ${row['baseline_cost_usd']:.5f})</b>"
+            f"<span>비용</span><b>{krw(row['cost_usd'], rate)} (기존 방식 {krw(row['baseline_cost_usd'], rate)})</b>"
             f"<span>시간</span><b>판단 {row['decision_latency_ms']:.0f}ms · 전체 {row['total_latency_ms']:.0f}ms</b></div>")
 
 
@@ -68,6 +69,7 @@ def page() -> None:
     picked = event.selection.rows[0] if event.selection.rows else 0      # 고르지 않았으면 가장 최근 요청
     row = rows[picked]
     with right:
-        st.markdown("<div class='gw-label'>고른 요청</div>" + _detail(row), unsafe_allow_html=True)
+        st.markdown("<div class='gw-label'>고른 요청</div>" + _detail(row, s.config.display.krw_per_usd),
+                    unsafe_allow_html=True)
         st.markdown("<div class='gw-label'>처리 과정</div>", unsafe_allow_html=True)
-        steps_view(row, s.config.decision.thresholds, height=300, key="log_steps")
+        steps_view(row, s.config.decision.thresholds, height=300, key="log_steps", rate=s.config.display.krw_per_usd)

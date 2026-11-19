@@ -15,6 +15,7 @@ from openai import OpenAI, OpenAIError
 
 from admin import beta
 from admin.flow import answer_html, outbound_text, session_totals
+from admin.money import krw, rate_line, saving_sentence
 from admin.ui import ROOT, gateway_url, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
@@ -58,16 +59,19 @@ def _send(s, text: str) -> None:
     st.session_state.selected = len(st.session_state.turns) - 1
 
 
-def _metrics(logged: list[dict]) -> str:
+def _metrics(logged: list[dict], rate: float, note: str) -> str:
+    """비용 카드 세 장 + 읽히는 한 문장 (#132: 설문에서 비용 표시가 3.0점으로 가장 낮았다). 금액은 원화."""
     cost, base = session_totals(logged)
     saved = f"{1 - cost / base:.0%}" if base else "-"
     return ("<div class='gw-metrics'>"
-            f"<div class='gw-metric'><div class='k'>기존 방식 (전부 고성능 모델)</div><div class='v'>${base:.4f}</div>"
+            f"<div class='gw-metric'><div class='k'>기존 방식 (전부 고성능 모델)</div><div class='v'>{krw(base, rate)}</div>"
             f"<div class='d'>이번 시연 요청 {len(logged)}건</div></div>"
-            f"<div class='gw-metric'><div class='k'>게이트웨이 사용</div><div class='v'>${cost:.4f}</div>"
-            "<div class='d'>템플릿·저렴한 모델·차단 포함</div></div>"
+            f"<div class='gw-metric'><div class='k'>가림게이트 사용</div><div class='v'>{krw(cost, rate)}</div>"
+            "<div class='d'>정해 둔 답·저렴한 모델·차단 포함</div></div>"
             f"<div class='gw-metric save'><div class='k'>절감</div><div class='v'>{saved}</div>"
-            f"<div class='d'>${max(base - cost, 0):.4f} 아낌</div></div></div>")
+            f"<div class='d'>{krw(max(base - cost, 0), rate)} 아낌</div></div></div>"
+            f"<div class='gw-saving'>{html.escape(saving_sentence(cost, base, len(logged), rate))}"
+            f"<span>{html.escape(rate_line(rate, note))}</span></div>")
 
 
 def _terminal(turns: list[dict]) -> str:
@@ -116,7 +120,7 @@ def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
     if row is None:
         st.warning("이 요청의 기록을 찾지 못했습니다 (게이트웨이 연결 실패).")
         return
-    steps_view(row, s.config.decision.thresholds, height=300, key="steps")   # 단계가 길어도 이 칸 안에서만 스크롤
+    steps_view(row, s.config.decision.thresholds, height=300, key="steps", rate=s.config.display.krw_per_usd)   # 단계가 길어도 이 칸 안에서만 스크롤
 
 
 def page() -> None:
@@ -130,7 +134,8 @@ def page() -> None:
 
     if (notice := st.session_state.pop("beta_notice", None)) is not None:   # 체험판 사용량 안내 (#90)
         st.warning(notice)
-    st.markdown(_metrics([r for r in rows if r]), unsafe_allow_html=True)
+    st.markdown(_metrics([r for r in rows if r], s.config.display.krw_per_usd, s.config.display.rate_note),
+                unsafe_allow_html=True)
     left, right = st.columns([1.1, 1], gap="medium")
     with left:
         st.markdown("<div class='gw-label'>챗봇 (기존 서비스)</div>", unsafe_allow_html=True)
