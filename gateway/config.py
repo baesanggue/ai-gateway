@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -161,6 +161,12 @@ class StorageConfig(BaseModel):
     sqlite_path: str
 
 
+class DisplayConfig(BaseModel):
+    """화면에 비용을 원화로 보여 줄 때 쓰는 환율 (#132). 기록(DB)·측정 문서는 달러 그대로 두고 보여 줄 때만 바꾼다."""
+    krw_per_usd: float = Field(default=1340.0, gt=0)     # 2026-11-11 하나은행 종가 1,337.5원을 반올림
+    rate_note: str = "2026년 11월 기준"                    # 화면에 환율과 함께 적는 기준일
+
+
 class BetaConfig(BaseModel):
     """웹 체험판 (#90, 11/11): .env에 BETA_PASSWORD가 있으면 화면이 체험판으로 켜진다. API 비용을 묶는 사용량 상한."""
     per_session: int = 30        # 한 사람(브라우저 세션)이 보낼 수 있는 요청 수
@@ -177,6 +183,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig
     masking: MaskingConfig
     storage: StorageConfig
+    display: DisplayConfig = DisplayConfig()
     beta: BetaConfig = BetaConfig()
 
 
