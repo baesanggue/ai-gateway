@@ -29,6 +29,7 @@ COMPACT = """<style>
 .st-key-cli_box { margin-top: -0.5rem; }
 .gw-panel { height: 108px; }
 </style>"""
+LABEL_CHARS = 30          # 처리 과정 위 요청 목록에 보일 글자 수. 넘으면 줄임표로 끝낸다 (#134)
 FOCUS = """<script>
 setTimeout(() => {
   const doc = (window.parent && window.parent.document) || document;
@@ -134,6 +135,13 @@ def _panels(row: dict | None, turn: dict) -> str:
             f"<div style='white-space:pre-wrap'>{answer}</div></div></div>")
 
 
+def short(text: str, limit: int = LABEL_CHARS) -> str:
+    """요청 목록의 한 줄 (#134). 줄바꿈·이어진 공백은 한 칸으로 줄이고, 길면 잘라 끝에 "…"를 붙인다.
+    설문: "이 주민번호 …로 고객 나이 계산해줘"가 "…고객 나이 계"에서 끊겨, 자른 것인지 알 수 없었다."""
+    line = " ".join(text.split())
+    return line if len(line) <= limit else line[:limit - 1].rstrip() + "…"
+
+
 def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
     is_beta = beta.enabled(s)
     if is_beta and turns:                     # 체험판 (#90): 보낸 뒤에는 안내를 작은 창으로 (화면을 밀지 않게)
@@ -150,7 +158,7 @@ def _process(s, turns: list[dict], rows: list[dict | None]) -> None:
         else:
             st.markdown("<div class='gw-hint'>요청을 보내면 단계별로 무엇을 했는지 여기에 나옵니다.</div>", unsafe_allow_html=True)
         return
-    labels = [f"[{i}] {t['user'][:30]}" for i, t in enumerate(turns, 1)]
+    labels = [f"[{i}] {short(t['user'])}" for i, t in enumerate(turns, 1)]
     sel = st.selectbox("요청", range(len(turns)), index=st.session_state.selected,
                        format_func=lambda i: labels[i], label_visibility="collapsed")
     st.session_state.selected = sel

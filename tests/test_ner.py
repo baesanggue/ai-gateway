@@ -7,7 +7,8 @@ import pytest
 from gateway.config import NerConfig
 from gateway.masking.ner import BATCH, OVERLAP, PINNED, WINDOW, NerModel, NerModelError, load, merge_bio
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "koelectra-ko-pii-ner"
+ROOT = Path(__file__).resolve().parent.parent
+MODEL_DIR = ROOT / "models" / "koelectra-ko-pii-ner"
 needs_model = pytest.mark.skipif(not all((MODEL_DIR / f).exists() for f in PINNED),
                                  reason="이름 인식 모델 파일이 없다 (models/는 저장소에 넣지 않는다)")
 
@@ -86,6 +87,30 @@ def test_real_model_addresses_are_masked_but_region_names_are_not(model, text, m
     from gateway.masking.masker import RuleMasker
     r = RuleMasker([], ner=model).mask([{"role": "user", "content": text}])
     assert r.messages[0]["content"] == masked and r.suspected == []
+
+
+@needs_model
+@pytest.mark.parametrize("text", ["기린은 목이 왜 길어요?", "기린이 좋아하는 음식은?", "토끼는 뭘 먹어?", "하마는 수영해?",
+                                  "사자랑 기린 중에 누가 더 빨라?"])
+def test_real_model_common_words_are_not_masked_with_the_config_list(model, tmp_path, text):
+    """#134 재현: 실제 모델은 문장 맨 앞에 조사와 함께 온 "기린"을 이름으로 본다(11/17 설문, 11/20 확률 0.91).
+    config.yaml의 모든 업종 공통 목록으로 가리지 않는다. 모델이 여전히 이름으로 보는지도 확인한다(목록이 막은 것이다)."""
+    from gateway.config import load_settings
+    from gateway.masking.masker import RuleMasker
+    assert model.find(text, {"NAME"})
+    words = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env").config.masking.all_not_names
+    r = RuleMasker([], ner=model, not_names=words).mask([{"role": "user", "content": text}])
+    assert r.messages[0]["content"] == text and r.counts == {}
+
+
+@needs_model
+def test_real_model_names_in_the_same_position_are_still_masked(model, tmp_path):
+    """같은 자리의 진짜 이름은 그대로 가린다 (목록은 정확히 같은 낱말만 뺀다)."""
+    from gateway.config import load_settings
+    from gateway.masking.masker import RuleMasker
+    words = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env").config.masking.all_not_names
+    r = RuleMasker([], ner=model, not_names=words).mask([{"role": "user", "content": "지훈이 좋아하는 음식은?"}])
+    assert r.messages[0]["content"] == "[이름1]이 좋아하는 음식은?"
 
 
 @needs_model

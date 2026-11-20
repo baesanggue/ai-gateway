@@ -6,6 +6,7 @@
 - 테스트셋 190행: 사람이 붙인 `pii_types` 라벨. 값은 모르므로 종류별 토큰·흔적으로 본다 (#46 run_masked.residual)
 
 업종마다 그 업종 프리셋(사전·회사별 식별번호·이름이 아닌 낱말): 쇼핑몰·사내 shop, 의료 medical, 금융·공공 없음 (11/09, #65)
+"이름이 아닌 낱말"은 모든 업종 공통 목록(config.yaml, 11/20 #134)과 합쳐 쓴다
 
 조건
 - before: 시연 사전만, 이름 인식 없음 (D23 이전)
@@ -108,7 +109,7 @@ def masker_for(condition: str, names: list[str], settings, ner) -> RuleMasker:
     custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]
     if condition == "before":                                          # D23 이전: 이름 인식 모델 없음
         return RuleMasker(entries, "custom", custom)
-    return RuleMasker(entries, "custom", custom, ner, cfg.not_names)
+    return RuleMasker(entries, "custom", custom, ner, cfg.all_not_names)     # 공통(#134) + 업종(#65)
 
 
 CUSTOM_KINDS: set[str] = set()                     # 프리셋들의 회사별 식별번호 종류 (main에서 채운다)
@@ -238,7 +239,7 @@ def summary(out: Path) -> None:
     lines = ["# 가명화 성능 (#58) — 개인정보 종류별 재현율·정밀도", "",
              "조건: `before` 시연 사전만·이름 인식 없음(D23 이전) / `default` 시연 사전 + 이름 인식(지금 기본) / "
              "`all_names` 이름 전부 사전 등록 + 이름 인식. 업종마다 그 업종 프리셋(쇼핑몰·사내 shop, 의료 medical, 금융·공공 없음): "
-             "사전·회사별 식별번호·이름이 아닌 낱말(#65).", "",
+             "사전·회사별 식별번호·이름이 아닌 낱말(#65). 이름이 아닌 낱말에는 모든 업종 공통 목록(config.yaml, #134)을 더한다.", "",
              "## 생성 데이터 (#21, 값과 위치를 코드가 안다)", "",
              *recall_table(gen_rows, "생성 데이터"), *precision_table(gen_rows, "생성 데이터"),
              *missed_list(gen_rows, "default", "row"),

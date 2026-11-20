@@ -155,6 +155,14 @@ class MaskingConfig(BaseModel):
     # 이름 인식 모델이 사람 이름으로 잘못 보는 업무 낱말 (#65, 업종 프리셋이 정한다). 정확히 같은 낱말만 가리지 않는다.
     # 사람 이름과 같은 낱말을 넣으면 그 이름은 이름 인식 모델로 가려지지 않는다 (사전에 등록한 이름은 그대로 가린다)
     not_names: list[str] = []
+    # 업종과 관계없이 이름으로 잘못 보는 일반 낱말 (#134, config.yaml이 정한다. 설문에서 "기린"을 이름으로 가렸다).
+    # 업종 목록(not_names)과 합쳐 쓴다. 프리셋 목록은 config.yaml이 덮으면 통째로 바뀌므로 칸을 따로 둔다
+    common_not_names: list[str] = []
+
+    @property
+    def all_not_names(self) -> list[str]:
+        """가명화 부품에 넘기는 "이름이 아닌 낱말": 모든 업종 공통 + 이 업종 프리셋."""
+        return [*self.common_not_names, *self.not_names]
 
 
 class StorageConfig(BaseModel):
