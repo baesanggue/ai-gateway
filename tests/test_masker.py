@@ -360,6 +360,18 @@ def test_business_words_listed_in_the_preset_are_not_masked_as_names():
     assert r.messages[0]["content"] == "건강검진 전날 금식은 몇 시부터예요? Mode 설정도요. [이름1] 환자"
 
 
+def test_common_words_and_preset_words_are_both_not_names(tmp_path, monkeypatch):
+    """설문에서 "기린"을 이름으로 가렸다 (#134). 모든 업종 공통 목록(config.yaml)과 업종 목록(프리셋)을 합쳐 쓴다.
+    진짜 이름은 그대로 가린다."""
+    monkeypatch.setattr("gateway.masking.masker.load_ner", lambda cfg: FakeNer(names=["기린", "노쇼", "양미래"]))
+    real = tmp_path / "user_dictionary.txt"
+    real.write_text("고객,홍길동\n", encoding="utf-8")
+    cfg = MaskingConfig(user_dictionary_path=str(real), not_names=["노쇼"], common_not_names=["기린"])
+    assert cfg.all_not_names == ["기린", "노쇼"]
+    r = RuleMasker.from_config(cfg).mask([{"role": "user", "content": "기린은 목이 왜 길어요? 노쇼 고객 양미래"}])
+    assert r.messages[0]["content"] == "기린은 목이 왜 길어요? 노쇼 고객 [이름1]"
+
+
 def test_dictionary_value_is_masked_even_if_listed_as_not_a_name():
     """목록은 이름 인식 모델에만 적용한다. 회사가 사전에 등록한 값은 그대로 가린다."""
     masker = RuleMasker([Entry("고객", "모드")], ner=FakeNer(names=["모드"]), not_names=["모드"])

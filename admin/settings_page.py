@@ -50,8 +50,9 @@ def _level_preset(s) -> None:
         faq = len(p.get("faq", {}).get("entries", []))
         m = p.get("masking", {})
         ids = ", ".join(c["kind"] for c in m.get("custom_patterns", [])) or "없음"
-        st.caption(f"정해 둔 답(FAQ) {faq}개 · 회사별 식별번호: {ids} · 이름이 아닌 낱말 {len(m.get('not_names', []))}개. "
-                   "업종을 바꾸면 이 값들이 함께 바뀝니다.")
+        common = len(s.config.masking.common_not_names)                   # 모든 업종 공통 (#134, config.yaml)
+        st.caption(f"정해 둔 답(FAQ) {faq}개 · 회사별 식별번호: {ids} · 이름이 아닌 낱말 {len(m.get('not_names', []))}개"
+                   f"(모든 업종 공통 {common}개는 따로). 업종을 바꾸면 이 값들이 함께 바뀝니다.")
     changed = level != s.config.security_level or preset != s.config.preset
     if st.button("저장하고 적용", type="primary", disabled=not changed, key="save_level"):
         data = store.override_with(store.read_override(), level=level, preset=preset)

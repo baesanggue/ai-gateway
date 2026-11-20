@@ -55,6 +55,16 @@ def test_override_changes_level_preset_and_prompts(tmp_path):
     assert c.decision.model == "gliclass:v4-edge"              # 나머지 decision 값은 config.yaml 그대로
 
 
+@pytest.mark.parametrize("preset, word", [("shop", "노쇼"), ("medical", "금식"), ("school", None)])
+def test_common_not_names_apply_to_every_preset(tmp_path, preset, word):
+    """모든 업종 공통 "이름이 아닌 낱말"(#134)은 업종을 바꿔도 남고, 그 업종의 낱말(#65)과 합쳐진다."""
+    over = tmp_path / "settings.override.yaml"
+    over.write_text(f"preset: {preset}\n", encoding="utf-8")
+    m = load_settings(ROOT / "config.yaml", env_file=tmp_path / "없는.env", override_path=over).config.masking
+    assert {"기린", "토끼", "하마", "사자"} <= set(m.all_not_names)
+    assert word is None or word in m.all_not_names
+
+
 def test_override_rejects_other_keys(tmp_path):
     over = tmp_path / "settings.override.yaml"
     for text in ("storage:\n  sqlite_path: x.db\n", "decision:\n  model: other\n", "decision: strict\n"):

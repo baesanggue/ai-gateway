@@ -185,7 +185,7 @@ class RuleMasker:
         entries, _, is_example = load_dictionary(cfg)    # 사전이 없으면 DictionaryMissing (시작하지 않는다, D21)
         custom = [(p.kind, re.compile(p.pattern)) for p in cfg.custom_patterns]   # 설정에서 이미 검증했다
         ner = load_ner(cfg.ner)                          # 모델 파일이 없거나 해시가 다르면 NerModelError (D23)
-        return cls(entries, "example" if is_example else "custom", custom, ner, cfg.not_names)
+        return cls(entries, "example" if is_example else "custom", custom, ner, cfg.all_not_names)
 
     @property
     def ner_source(self) -> str | None:
