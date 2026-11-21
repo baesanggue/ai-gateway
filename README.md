@@ -44,18 +44,24 @@ powershell -ExecutionPolicy Bypass -File scripts\stop.ps1      # 끄기
 
 ## 3. 기존 서비스에 붙이기
 
-기존 서비스의 **base URL만** 게이트웨이로 바꾼다. 나머지 코드는 그대로다.
+기존 서비스의 **base URL만** 게이트웨이로 바꾼다. 나머지 코드는 그대로다. 외부 AI는 `[고객1]`·`[전화번호1]`만 보고, 받은 답변에는 원래 이름·번호가 들어 있다.
 
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="local")   # 같은 PC에서는 키를 확인하지 않는다
-res = client.chat.completions.create(
-    model="gpt-6-luna",
-    messages=[{"role": "user", "content": "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"}],
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",  # ← 이 줄만 더하거나 바꿉니다
+    api_key="local",  # 같은 PC는 아무 값 (게이트웨이 키를 정했으면 그 키)
 )
-print(res.choices[0].message.content)    # 외부 AI는 [고객1]·[전화번호1]만 봤고, 답변에는 원래 이름·번호가 들어 있다
+question = "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"
+res = client.chat.completions.create(
+    model="gpt-6.1-sol",  # 그대로 둡니다 (모델은 가림게이트가 고름)
+    messages=[{"role": "user", "content": question}],
+)
+print(res.choices[0].message.content)  # 이름·번호를 되돌린 답변
 ```
+
+JavaScript 예시, 키, 응답에서 알 수 있는 것, 오류 표는 **[docs/integration.md](docs/integration.md)**에 있다. 같은 내용을 프로그램의 **연동 안내** 메뉴에서도 본다(#133). 이 예시는 테스트가 그대로 실행해 게이트웨이를 거치는지 확인한다.
 
 | 지원 | 내용 |
 |---|---|

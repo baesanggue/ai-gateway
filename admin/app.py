@@ -3,7 +3,7 @@
 실행: uv run streamlit run admin/app.py   (게이트웨이와 Ollaya가 먼저 떠 있어야 한다)
 프로그램 창으로 열기: scripts/open-app.ps1 (1200×800 안팎의 앱 창)
 
-메뉴 (11/09 사용자 선택): 현황(처음 화면) / 시연 / 파일 검사 / 요청 기록 / 설정 — admin/nav.py
+메뉴 (11/09 사용자 선택): 현황(처음 화면) / 시연 / 파일 검사 / 요청 기록 / 연동 안내(#133) / 설정 — admin/nav.py
 """
 import sys
 from pathlib import Path

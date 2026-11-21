@@ -163,6 +163,26 @@ div[data-testid="stPopoverBody"] .gw-gsteps { flex-direction: column; width: 420
 .gw-box .hd { font-size: var(--gw-small); color: #fff; background: var(--gw-band); padding: 3px 12px; font-weight: 700; }
 .gw-box .bd { padding: 8px 12px 10px; }
 .gw-box .empty { font-size: var(--gw-small); color: var(--gw-ink); }
+
+/* 연동 안내 (#133): 연결 정보는 이름표 + 설명, 코드 예시는 파란 머리 띠 상자 안의 탭, 표는 진한 글씨 */
+.gw-kv.int { gap: 6px 16px; line-height: 1.5; margin: 0; }
+.gw-kv.int span { font-weight: 700; color: var(--gw-ink); }
+.gw-box code, .gw-tbl code { font-size: var(--gw-small); color: var(--gw-ink); background: var(--gw-tint); padding: 0 4px;
+  border-radius: 4px; }
+.st-key-int_code { border: 2px solid var(--gw-band); border-radius: 8px; overflow: hidden; gap: 0.3rem; padding: 0 12px 6px;
+  margin: 0.6rem 0; }
+.gw-int-hd { margin: 0 -12px; padding: 3px 12px; background: var(--gw-band); color: #fff; font-weight: 700; font-size: var(--gw-small); }
+.st-key-int_code [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+.st-key-int_code button[role="tab"] p { font-size: var(--gw-head); font-weight: 700; color: var(--gw-ink); }
+.st-key-int_code pre, .st-key-int_code code { font-size: var(--gw-small) !important; }
+/* 코드 속 안내 주석("← 이 줄만 바꿉니다")이 기본 색(연한 회색 기울임)이면 가장 중요한 줄이 가장 흐리다 → 진한 갈색, 바로 */
+.st-key-int_code .token.comment { color: #92400e !important; font-style: normal !important; font-weight: 600; }
+.gw-box.int { height: auto; margin-bottom: 0.7rem; }
+.gw-tbl th { white-space: nowrap; }
+.gw-tbl { width: 100%; border-collapse: collapse; font-size: var(--gw-small); color: var(--gw-ink); line-height: 1.45; }
+.gw-tbl th { text-align: left; background: var(--gw-tint); padding: 3px 8px; font-weight: 700; }
+.gw-tbl td { padding: 4px 8px; border-top: 1px solid #94a3b8; vertical-align: top; }
+.gw-tbl code { white-space: nowrap; }
 </style>
 """
 
