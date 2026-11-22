@@ -23,7 +23,8 @@ from streamlit.testing.v1 import AppTest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from admin.integration_page import ERRORS, js_example, python_example  # noqa: E402
+from admin.integration_page import (  # noqa: E402
+    ERRORS, js_example, js_stream_example, python_example, python_stream_example)
 from gateway.api import routes  # noqa: E402
 from gateway.config import GatewayConfig  # noqa: E402
 from gateway.main import create_app  # noqa: E402
@@ -62,22 +63,36 @@ def running_gateway(tmp_path, upstream):
         sock.close()
 
 
+def run_pasted(code: str, tmp_path: Path) -> subprocess.CompletedProcess:
+    """붙여 넣은 코드를 이 저장소 밖 폴더의 다른 파이썬 프로세스에서 돌린다 (붙여 넣는 사람의 프로그램)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OPENAI_")}
+    env |= {"PYTHONIOENCODING": "utf-8", "NO_PROXY": "127.0.0.1,localhost"}
+    work = tmp_path / "my-service"
+    work.mkdir(exist_ok=True)
+    return subprocess.run([sys.executable, "-c", code], cwd=work, env=env, capture_output=True,
+                          text=True, encoding="utf-8", timeout=90)
+
+
 def test_python_example_runs_unchanged_and_goes_through_the_gateway(tmp_path):
     upstream = FakeUpstream(reply="[고객1] 고객님, 배송이 늦어져 죄송합니다.")
     with running_gateway(tmp_path, upstream) as base:
-        code = python_example(base)                    # 화면에 보이는 그대로
-        env = {k: v for k, v in os.environ.items() if not k.startswith("OPENAI_")}
-        env |= {"PYTHONIOENCODING": "utf-8", "NO_PROXY": "127.0.0.1,localhost"}
-        work = tmp_path / "my-service"                # 이 저장소 밖에서 돈다 (붙여 넣는 사람의 프로그램)
-        work.mkdir()
-        run = subprocess.run([sys.executable, "-c", code], cwd=work, env=env, capture_output=True,
-                             text=True, encoding="utf-8", timeout=90)
+        run = run_pasted(python_example(base), tmp_path)          # 화면에 보이는 그대로
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip() == "김민수 고객님, 배송이 늦어져 죄송합니다."     # 이 PC에서 되돌린 답변
     sent = upstream.raw_bytes().decode("utf-8")
     assert "[고객1]" in sent and "[전화번호1]" in sent                     # 게이트웨이를 거쳐 가려진 채로 나갔다
     assert "김민수" not in sent and "010-1234-5678" not in sent
     assert len(RequestLog(tmp_path / "gateway.db").recent(10)) == 1         # 요청 기록에 한 줄
+
+
+def test_python_stream_example_runs_unchanged(tmp_path):
+    """문서의 stream=True 예시 (#84): 실제 소켓으로 SSE 조각을 받아 이어 붙인다."""
+    upstream = FakeUpstream(reply="[고객1] 고객님, 배송이 늦어져 죄송합니다.")
+    with running_gateway(tmp_path, upstream) as base:
+        run = run_pasted(python_stream_example(base), tmp_path)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "김민수 고객님, 배송이 늦어져 죄송합니다."
+    assert "김민수" not in upstream.raw_bytes().decode("utf-8")
 
 
 def _read(*parts: str) -> str:
@@ -88,6 +103,8 @@ def test_docs_show_the_same_examples_as_the_screen():
     docs = _read("docs", "integration.md")
     assert f"```python\n{python_example(DEFAULT_BASE)}```" in docs
     assert f"```javascript\n{js_example(DEFAULT_BASE)}```" in docs
+    assert f"```python\n{python_stream_example(DEFAULT_BASE)}```" in docs                # 스트리밍 (#84)
+    assert f"```javascript\n{js_stream_example(DEFAULT_BASE)}```" in docs
     for _, code, _, _ in ERRORS:
         assert f"`{code}`" in docs
     assert f"```python\n{python_example(DEFAULT_BASE)}```" in _read("README.md")     # README 3장도 같은 예시
