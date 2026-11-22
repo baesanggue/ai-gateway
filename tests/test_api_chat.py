@@ -51,14 +51,6 @@ def test_accepts_text_parts_and_unknown_fields(client):
     assert r.status_code == 200
 
 
-def test_stream_is_rejected_with_openai_error(client):
-    r = post(client, messages=[{"role": "user", "content": "안녕"}], stream=True)
-    assert r.status_code == 400
-    err = r.json()["error"]
-    assert err["param"] == "stream"
-    assert err["type"] == "invalid_request_error"
-
-
 def test_non_text_content_is_rejected(client):
     r = post(client, messages=[{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}]}])

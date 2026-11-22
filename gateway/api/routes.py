@@ -6,25 +6,33 @@
 - 차단: HTTP 200 + 안내문을 답변으로 + finish_reason "content_filter". 기존 챗봇은 안내문을 그대로 보여 주고,
   프로그램은 차단됐다는 것을 알 수 있다
 - LLM 오류: OpenAI 형식 502. 메시지에 상위 오류 내용을 넣지 않는다 (로그에는 오류 code가 남는다)
+- stream=true (#84, D32): 처리·복원을 끝까지 한 뒤 완성된 답을 OpenAI 스트리밍 형식(SSE)으로 보낸다.
+  LLM 답을 조각째 넘기면 [고객1]이 조각 경계에서 잘려 복원하기 어렵고, 복원 전 조각이 나가면 가명이 그대로 보인다.
+  첫 글자까지 시간은 줄지 않지만 SDK의 stream 호출이 그대로 동작한다. 오류는 보내기 전에 정해지므로 보통 오류 응답으로 온다
 """
 import base64
 import binascii
 import hmac
 import ipaddress
+import json
+from collections.abc import Iterator
 from dataclasses import asdict
 from typing import get_args
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from gateway.files.extract import FileError
 from gateway.files.scan import scan, summary
 from gateway.api.schemas import (
     AssistantMessage,
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
+    ChunkChoice,
+    ChunkDelta,
     ErrorDetail,
     ErrorResponse,
     FileScanRequest,
@@ -109,9 +117,6 @@ def _is_local(host: str) -> bool:
 def chat_completions(req: ChatCompletionRequest, request: Request):
     if (denied := authorize(request)) is not None:
         return denied
-    if req.stream:
-        return openai_error(400, "stream=true는 아직 지원하지 않습니다. stream=false로 보내 주세요.",
-                            param="stream", code="unsupported_parameter")
     try:
         messages = [{"role": m.role, "content": m.text()} for m in req.messages]  # 텍스트가 아닌 조각은 여기서 거른다
     except ValueError as e:
@@ -134,7 +139,38 @@ def chat_completions(req: ChatCompletionRequest, request: Request):
         usage=Usage(prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens,
                     total_tokens=usage.prompt_tokens + usage.completion_tokens) if usage else Usage(),
     )
+    if req.stream:
+        include_usage = bool(req.stream_options and req.stream_options.include_usage)
+        return StreamingResponse(stream_events(body, include_usage), media_type="text/event-stream",
+                                 headers=headers | {"cache-control": "no-cache"})
     return JSONResponse(body.model_dump(), headers=headers)
+
+
+def stream_events(body: ChatCompletionResponse, include_usage: bool) -> Iterator[str]:
+    """완성된 답을 OpenAI 스트리밍 형식의 SSE 조각으로 (#84). 복원까지 끝난 답이라 가명 토큰이 조각나지 않는다.
+
+    순서: 역할 → 내용 → (LLM이 거부했으면) 거부 문구 → 끝난 이유 → (include_usage면) 토큰 수 → [DONE].
+    조각 사이에 일부러 늦추지 않는다 (11/22: 타자 효과를 흉내 내면 전체 시간만 늘어난다).
+    """
+    message, finish = body.choices[0].message, body.choices[0].finish_reason
+
+    def event(choices: list[ChunkChoice], usage: Usage | None = None) -> str:
+        chunk = ChatCompletionChunk(id=body.id, created=body.created, model=body.model, choices=choices).model_dump()
+        for out, choice in zip(chunk["choices"], choices):
+            out["delta"] = choice.delta.model_dump(exclude_unset=True)     # 보낸 칸만 (끝 조각은 빈 delta {})
+        if include_usage:            # SDK 설명: 마지막 조각만 usage가 있고 나머지는 null
+            chunk["usage"] = usage.model_dump() if usage else None
+        return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+    yield event([ChunkChoice(delta=ChunkDelta(role="assistant", content=""))])
+    if message.content:
+        yield event([ChunkChoice(delta=ChunkDelta(content=message.content))])
+    if message.refusal:
+        yield event([ChunkChoice(delta=ChunkDelta(refusal=message.refusal))])
+    yield event([ChunkChoice(delta=ChunkDelta(), finish_reason=finish)])
+    if include_usage:
+        yield event([], body.usage)
+    yield "data: [DONE]\n\n"
 
 
 @router.post("/v1/files/scan")
