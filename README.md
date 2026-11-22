@@ -65,10 +65,10 @@ JavaScript 예시, 키, 응답에서 알 수 있는 것, 오류 표는 **[docs/i
 
 | 지원 | 내용 |
 |---|---|
-| `POST /v1/chat/completions` | OpenAI 형식(`stream=false`, 텍스트). 응답 헤더 `x-gateway-request-id`로 요청 기록을 찾는다. 막은 요청은 `finish_reason: "content_filter"`와 안내문 |
+| `POST /v1/chat/completions` | OpenAI 형식(텍스트). `stream=true`도 된다: 답을 다 만들고 되돌린 뒤 조각으로 보낸다(#84). 응답 헤더 `x-gateway-request-id`로 요청 기록을 찾는다. 막은 요청은 `finish_reason: "content_filter"`와 안내문 |
 | `POST /v1/files/scan` | 파일(PDF·워드·엑셀·텍스트) 속 개인정보 검사와 가명화된 텍스트. 파일은 밖으로 나가지 않는다 |
 | `GET /healthz` | 상태 (보안 수준·업종·사전 종류) |
-| 아직 안 됨 | `stream=true`(#84), 이미지 등 텍스트가 아닌 내용 → OpenAI 형식 400 오류로 안내 |
+| 받지 않음 | 이미지 등 텍스트가 아닌 내용 → OpenAI 형식 400 오류로 안내 |
 
 - 같은 PC에서 온 요청만 받는다. 다른 PC나 프록시 뒤에서 쓰려면 `.env`에 `GATEWAY_API_KEYS`를 넣고 클라이언트가 `Authorization: Bearer <키>`를 보낸다(D20).
 
@@ -175,6 +175,7 @@ flowchart LR
 - 주소는 도로명·지번·건물 이름이 붙은 주소까지 가린다(#87). 시·도나 구 없이 동과 건물 이름만 쓴 주소(`○○동 ○○빌라`)는 놓칠 수 있다.
 - 엄격 수준의 기밀 판단은 한 줄 요청 기준 오탐 12%다(막는 쪽으로 틀리게 했다).
 - 게이트웨이가 켤 때 판단 모델을 미리 올리고, 마지막 요청 뒤 30분 동안 둔다. 그보다 오래 쉬면 다음 첫 요청이 3~5초 늦다(#84).
+- `stream=true`는 답을 다 만들고 되돌린 뒤 조각으로 보낸다. 첫 글자가 오기까지 시간은 `stream=false`와 같다(#84, D32).
 
 ## 7. 개발
 

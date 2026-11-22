@@ -50,6 +50,47 @@ console.log(res.choices[0].message.content);  // 이름·번호를 되돌린 답
 - **웹페이지(브라우저)에서 직접 부르지 않는다.** 같은 PC의 웹페이지가 보낸 요청도 막는다(403 `forbidden_origin`). 악성 웹페이지가 회사의 OpenAI 키를 대신 쓰지 못하게 하려는 것이다(#12 보안 검토). 서버 코드에서 부른다.
 - 다른 언어는 같은 JSON을 `POST {주소}/chat/completions`로 보내면 된다(OpenAI Chat Completions 형식).
 
+### 스트리밍 (`stream=true`, #84)
+기존 서비스가 스트리밍으로 받고 있어도 그대로 된다. 가림게이트는 답을 다 만들고 이름·번호를 되돌린 뒤 OpenAI 스트리밍 형식(SSE)의 조각으로 보낸다. LLM의 답을 조각째 넘기면 `[고객1]`이 조각 경계에서 잘려 되돌리기 어렵고, 되돌리기 전 조각이 나가면 가명이 그대로 보이기 때문이다(D32). 그래서 **첫 글자가 오기까지 시간은 `stream=false`와 같다.**
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="local")
+question = "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘"
+stream = client.chat.completions.create(
+    model="gpt-6.1-sol",
+    messages=[{"role": "user", "content": question}],
+    stream=True,  # 답을 다 만든 뒤 조각으로 옵니다
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+print()
+```
+
+```javascript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://127.0.0.1:8000/v1",
+  apiKey: "local",
+});
+const question = "김민수 고객(010-1234-5678)에게 배송 지연 사과 메일 써줘";
+const stream = await client.chat.completions.create({
+  model: "gpt-6.1-sol",
+  messages: [{ role: "user", content: question }],
+  stream: true,  // 답을 다 만든 뒤 조각으로 옵니다
+});
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
+}
+process.stdout.write("\n");
+```
+
+- 순서: 역할 조각 → 내용 → 끝난 이유(`finish_reason`, 막은 요청은 `content_filter`) → `data: [DONE]`. `stream_options: {"include_usage": true}`를 보내면 `[DONE]` 앞에 토큰 수 조각(`choices`는 빈 배열)이 하나 더 온다.
+- 오류는 보내기 전에 정해지므로 스트리밍이어도 보통 오류 응답(상태 코드 + 오류 본문)으로 온다. SDK는 stream을 열기 전에 예외로 알린다.
+
 ## 키
 
 | 키 | 어디에 | 설명 |
@@ -63,7 +104,7 @@ console.log(res.choices[0].message.content);  // 이름·번호를 되돌린 답
 
 - `model`: 아무 이름이나 된다. 요청마다 정해 둔 답 · 저렴한 모델 · 고성능 모델 · 막음 중에서 가림게이트가 고른다(`config.yaml`의 `llm.cheap`·`llm.premium`).
 - `messages`: 텍스트 메시지(system·developer·user·assistant). 이미지 등 텍스트가 아닌 조각은 받지 않는다.
-- `stream`: `false`만. `max_completion_tokens`(또는 `max_tokens`)는 LLM에 넘긴다. 그 밖의 필드는 받아 두지만 쓰지 않는다.
+- `stream`: `true`도 된다(위 스트리밍). `max_completion_tokens`(또는 `max_tokens`)는 LLM에 넘긴다. 그 밖의 필드는 받아 두지만 쓰지 않는다.
 
 ## 응답에서 알 수 있는 것
 
@@ -82,7 +123,6 @@ console.log(res.choices[0].message.content);  // 이름·번호를 되돌린 답
 | 상태 | code | 언제 | 할 일 |
 |---|---|---|---|
 | 400 | `invalid_request` | 요청 형식이 틀렸다(`model`·`messages`가 없는 등) | `param`에 적힌 칸을 고친다 |
-| 400 | `unsupported_parameter` | `stream=true`로 보냈다 | `stream=false`로 보낸다 |
 | 400 | `unsupported_content` | 이미지 등 텍스트가 아닌 내용을 보냈다 | 텍스트만 보낸다 |
 | 401 | `invalid_api_key` | 게이트웨이 키가 틀렸거나, 키를 정하지 않았는데 다른 PC에서 보냈다 | 키를 확인한다 |
 | 403 | `forbidden_origin` | 웹페이지(브라우저)가 직접 보냈다 | 서버 코드에서 부른다 |
