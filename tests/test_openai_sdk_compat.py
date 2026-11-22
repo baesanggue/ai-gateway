@@ -50,8 +50,8 @@ def test_sdk_reads_blocked_reply_as_normal_completion(tmp_path):
         client.__exit__(None, None, None)
 
 
-def test_sdk_raises_bad_request_for_stream(sdk):
-    with pytest.raises(openai.BadRequestError) as e:
-        sdk.chat.completions.create(model="gpt-test", stream=True,
-                                    messages=[{"role": "user", "content": "안녕"}])
-    assert "stream" in str(e.value)
+def test_sdk_stream_call_works(sdk):
+    """stream=True도 SDK가 그대로 읽는다 (#84, 자세한 것은 tests/test_streaming.py)."""
+    stream = sdk.chat.completions.create(model="gpt-test", stream=True,
+                                         messages=[{"role": "user", "content": "배송 지연 사과 메일 써줘"}])
+    assert "".join(ch.choices[0].delta.content or "" for ch in stream) == "배송이 늦어져 죄송합니다."

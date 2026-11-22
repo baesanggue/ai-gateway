@@ -53,6 +53,45 @@ console.log(res.choices[0].message.content);  // 이름·번호를 되돌린 답
 '''
 
 
+def python_stream_example(base_url: str) -> str:
+    """stream=True 예시 (#84, docs/integration.md). 답을 다 만들고 되돌린 뒤 조각으로 온다."""
+    return f'''from openai import OpenAI
+
+client = OpenAI(base_url="{base_url}", api_key="local")
+question = "{SAMPLE}"
+stream = client.chat.completions.create(
+    model="{SAMPLE_MODEL}",
+    messages=[{{"role": "user", "content": question}}],
+    stream=True,  # 답을 다 만든 뒤 조각으로 옵니다
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+print()
+'''
+
+
+def js_stream_example(base_url: str) -> str:
+    """stream: true 예시 (#84, docs/integration.md)."""
+    return f'''import OpenAI from "openai";
+
+const client = new OpenAI({{
+  baseURL: "{base_url}",
+  apiKey: "local",
+}});
+const question = "{SAMPLE}";
+const stream = await client.chat.completions.create({{
+  model: "{SAMPLE_MODEL}",
+  messages: [{{ role: "user", content: question }}],
+  stream: true,  // 답을 다 만든 뒤 조각으로 옵니다
+}});
+for await (const chunk of stream) {{
+  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
+}}
+process.stdout.write("\\n");
+'''
+
+
 # 응답에서 알 수 있는 것: (보는 곳, 뜻)
 RESPONSE = [
     ("choices[0].message.content", "답변. 가린 이름·번호는 이 PC에서 원래 값으로 되돌려 놓았습니다"),
@@ -65,7 +104,6 @@ RESPONSE = [
 # 오류: (HTTP 상태, code, 언제, 할 일). 본문은 OpenAI 형식 {"error": {"message", "type", "param", "code"}}
 ERRORS = [
     (400, "invalid_request", "요청 형식이 틀렸습니다(model·messages가 없는 등)", "param에 적힌 칸을 고칩니다"),
-    (400, "unsupported_parameter", "stream=true로 보냈습니다", "stream=false로 보냅니다"),
     (400, "unsupported_content", "이미지 등 텍스트가 아닌 내용을 보냈습니다", "텍스트만 보냅니다"),
     (401, "invalid_api_key", "게이트웨이 키가 틀렸거나, 키를 정하지 않았는데 다른 PC에서 보냈습니다", "키를 확인합니다"),
     (403, "forbidden_origin", "웹페이지(브라우저)가 직접 보냈습니다", "서버 코드에서 부릅니다"),
@@ -94,7 +132,8 @@ def _connection(s, base: str) -> str:
         ("모델", "아무 이름이나 됩니다. 요청마다 정해 둔 답 · 저렴한 모델"
                  f"(<code>{html.escape(llm.cheap.model)}</code>) · 고성능 모델(<code>{html.escape(llm.premium.model)}</code>) · "
                  "막음 중에서 가림게이트가 고릅니다"),
-        ("보낼 수 있는 것", "텍스트 메시지(system·user·assistant), 한 번에 답 하나(<code>stream=false</code>)"),
+        ("보낼 수 있는 것", "텍스트 메시지(system·user·assistant). <code>stream=true</code>도 됩니다(#84): 답을 다 만들고 "
+                            "이름·번호를 되돌린 뒤 조각으로 보내므로, 첫 글자가 오기까지 시간은 같습니다"),
     ]
     kv = "".join(f"<span>{k}</span><div>{v}</div>" for k, v in rows)
     return f"<div class='gw-box'><div class='hd'>연결 정보</div><div class='bd'><div class='gw-kv int'>{kv}</div></div></div>"
@@ -131,4 +170,5 @@ def page() -> None:
                        [[str(status), f"<code>{code}</code>", html.escape(when), html.escape(todo)]
                         for status, code, when, todo in ERRORS]), unsafe_allow_html=True)
     st.caption("오류 본문은 OpenAI 형식이라 SDK에서는 예외로 옵니다(Python openai.APIStatusError, JS OpenAI.APIError — "
-               "status와 code로 구별). 파일 속 개인정보 검사(POST /v1/files/scan)와 상태(GET /healthz)는 docs/integration.md에 있습니다.")
+               "status와 code로 구별). 스트리밍 예시, 파일 속 개인정보 검사(POST /v1/files/scan)와 상태(GET /healthz)는 "
+               "docs/integration.md에 있습니다.")

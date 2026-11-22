@@ -38,11 +38,19 @@ class ChatMessage(BaseModel):
         return "\n".join(texts)
 
 
+class StreamOptions(BaseModel):
+    """stream=true일 때의 선택 (#84). include_usage면 [DONE] 앞에 토큰 수 조각을 하나 더 보낸다."""
+
+    model_config = ConfigDict(extra="allow")
+    include_usage: bool = False
+
+
 class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
     model: str
     messages: list[ChatMessage] = Field(min_length=1)
     stream: bool = False
+    stream_options: StreamOptions | None = None
     temperature: float | None = None
     max_completion_tokens: int | None = None
     max_tokens: int | None = None  # OpenAI 문서상 폐기 예정, 호환을 위해 받는다
@@ -75,6 +83,33 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[Choice]
     usage: Usage = Usage()
+
+
+class ChunkDelta(BaseModel):
+    """스트리밍 조각의 바뀐 부분. 보낸 칸만 넣는다(exclude_unset으로 직렬화)."""
+
+    role: Literal["assistant"] | None = None
+    content: str | None = None
+    refusal: str | None = None
+
+
+class ChunkChoice(BaseModel):
+    index: int = 0
+    delta: ChunkDelta
+    finish_reason: Literal["stop", "length", "tool_calls", "content_filter", "function_call"] | None = None
+    logprobs: Any = None
+
+
+class ChatCompletionChunk(BaseModel):
+    """stream=true 응답의 한 조각 (#84). 형식은 OpenAI 공식 SDK의 ChatCompletionChunk와 같다:
+    object "chat.completion.chunk", 모든 조각이 같은 id·created·model. include_usage면 마지막 조각만 usage가 있고
+    choices가 빈 배열이며, 나머지 조각은 usage가 null이다 (SDK의 ChatCompletionStreamOptionsParam 설명)."""
+
+    id: str
+    object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChunkChoice]
 
 
 class ErrorDetail(BaseModel):
