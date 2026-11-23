@@ -5,6 +5,7 @@
    (decide_unmasked·decide_suspected: 가린 뒤에도 개인정보가 남았으면 판단 전에 차단. 남은 주소는 엄격 수준만, D23)
 2. decide_after_local: 로컬 판단 뒤. 엄격 수준에서 기밀이면 클라우드에 보내기 전에 차단
 3. decide_after_cloud: 클라우드 판단 뒤. 차단 / 고성능 / 저렴
+4. route_locally: 완전 로컬 수준이면, 밖으로 보낼 수 없어서 막던 요청을 이 PC의 로컬 LLM으로 보낸다 (#136, D34)
 
 차단 사유가 여러 개면 모두 reasons에 남기고(로그·화면용), 사용자에게는 가장 앞선 사유의 안내문 하나를 보낸다.
 예: 인젝션 시도는 대개 업무와도 무관하다. 이때 "업무와 무관합니다"보다 "보안 정책상 처리할 수 없습니다"가
@@ -18,7 +19,7 @@ from gateway.config import AppConfig, FAQConfig
 from gateway.decision.questions import ROUTING_QUESTIONS
 from gateway.decision.service import JudgeResult, Judgment
 
-Route = Literal["template", "cheap", "premium", "block"]
+Route = Literal["template", "cheap", "premium", "block", "local"]
 SecurityLevel = Literal["basic", "strict", "local"]
 
 # 차단 사유의 우선순위. 사용자에게는 이 순서에서 가장 앞선 사유의 안내문을 보낸다.
@@ -26,7 +27,11 @@ SecurityLevel = Literal["basic", "strict", "local"]
 # 로컬 단계(기밀·남은 개인정보)와 클라우드 단계 사유는 한 요청에서 같이 나오지 않는다 (로컬에서 막히면 클라우드에 안 보낸다)
 BLOCK_PRIORITY = ("risky", "needs_raw", "refused", "off_topic",
                   "confidential", "pii_residual", "pii_unmasked", "masking_unavailable",
-                  "local_error", "cloud_error", "low_confidence")
+                  "local_error", "cloud_error", "low_confidence", "local_llm_error")
+# 완전 로컬 수준에서 막지 않고 로컬 LLM이 원문으로 답하는 사유 (#136, D34). 모두 "밖으로 내보낼 수 없어서" 막던 것이다.
+# 위험·무관·판단 거부·판단 실패는 완전 로컬에서도 막는다. 기밀은 클라우드에 보내지 않으므로 위험 판단 없이 로컬 LLM이 답한다
+# (로컬 LLM은 도구·회사 데이터에 닿지 않고 답은 요청한 사람에게만 간다, 11/23 운영자 선택)
+LOCAL_REASONS = frozenset({"needs_raw", "confidential", "pii_residual", "pii_unmasked"})
 DEFAULT_BLOCK_MESSAGE = "요청을 처리할 수 없습니다."
 
 
@@ -66,7 +71,7 @@ def decide_after_local(local: JudgeResult, level: SecurityLevel, block_messages:
     - 엄격 수준: 기밀 → 차단. 로컬 판단이 실패하면 확인할 수 없으므로 차단
       남은 개인정보는 판단 모델이 아니라 이름 인식 모델로 본다(decide_suspected, D23). 판단 모델은 다 가려진 문장의 95%를
       "남았다"고 봐서 차단 근거로 못 쓴다(#46). 설정으로 has_pii를 local_questions에 다시 넣으면 그 판단으로도 막는다
-    - 완전 로컬 수준: 로컬 LLM 경로는 11/18 이후 선택 기능이라, 그 전까지 엄격 수준처럼 동작한다
+    - 완전 로컬 수준: 엄격 수준과 같이 정한다. 기밀이면 route_locally가 로컬 LLM으로 돌린다 (#136)
     """
     if level == "basic":
         return None
@@ -164,6 +169,14 @@ def apply_history_risk(decision: Decision, history: JudgeResult, cfg: AppConfig)
         return decision
     base = decision.reasons if decision.route == "block" else []
     return _block(base + extra, cfg.routing.block_messages)
+
+
+def route_locally(decision: Decision, level: SecurityLevel) -> Decision:
+    """완전 로컬 수준 (#136, D34): 막는 사유가 전부 LOCAL_REASONS(밖으로 내보낼 수 없음)이면 막지 않고 로컬 LLM으로 보낸다.
+    사유에 하나라도 다른 것(위험·무관·판단 거부·판단 실패)이 있으면 그대로 막는다. 다른 수준은 바꾸지 않는다."""
+    if level == "local" and decision.route == "block" and set(decision.reasons) <= LOCAL_REASONS:
+        return Decision("local", decision.reasons)
+    return decision
 
 
 def _on_cloud_error(cfg: AppConfig) -> Decision:

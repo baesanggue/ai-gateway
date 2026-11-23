@@ -19,7 +19,7 @@ from admin.stats import summarize
 from admin.ui import NUMS, bars, page_header, settings
 from gateway.storage.log import RequestLog
 
-ROUTES = ("template", "cheap", "premium", "block")
+ROUTES = ("template", "cheap", "premium", "local", "block")
 
 
 def _tiles(t: dict, b: dict, rate: float, note: str) -> str:
@@ -104,7 +104,8 @@ def page() -> None:
     st.markdown(_tiles(t, b, rate, s.config.display.rate_note), unsafe_allow_html=True)
 
     left, right = st.columns(2, gap="medium")
-    route_items = [(ROUTE_KO[r], t["by_route"].get(r, 0)) for r in ROUTES]
+    # 로컬 LLM(#136, 완전 로컬 수준에서만)은 그런 요청이 있을 때만 보인다. 기본·엄격에서 늘 0건인 줄을 두지 않는다
+    route_items = [(ROUTE_KO[r], t["by_route"].get(r, 0)) for r in ROUTES if r != "local" or t["by_route"].get(r)]
     left.markdown(_box("경로별 요청", bars(route_items) if t["requests"] else
                        "<div class='empty'>아직 요청이 없습니다. 시연 메뉴에서 보내 보세요.</div>"), unsafe_allow_html=True)
     reasons = sorted(b["block_reasons"].items(), key=lambda kv: -kv[1])[:5]

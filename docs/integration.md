@@ -102,7 +102,7 @@ process.stdout.write("\n");
 
 ## 보내는 것
 
-- `model`: 아무 이름이나 된다. 요청마다 정해 둔 답 · 저렴한 모델 · 고성능 모델 · 막음 중에서 가림게이트가 고른다(`config.yaml`의 `llm.cheap`·`llm.premium`).
+- `model`: 아무 이름이나 된다. 요청마다 정해 둔 답 · 저렴한 모델 · 고성능 모델 · 막음 중에서 가림게이트가 고른다(`config.yaml`의 `llm.cheap`·`llm.premium`). 완전 로컬 수준이면 밖으로 보낼 수 없는 요청은 이 PC의 로컬 LLM이 답하고, 응답의 `model`에 그 이름(`llm.local.model`)이 온다(#136).
 - `messages`: 텍스트 메시지(system·developer·user·assistant). 이미지 등 텍스트가 아닌 조각은 받지 않는다.
 - `stream`: `true`도 된다(위 스트리밍). `max_completion_tokens`(또는 `max_tokens`)는 LLM에 넘긴다. 그 밖의 필드는 받아 두지만 쓰지 않는다.
 

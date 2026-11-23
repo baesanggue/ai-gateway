@@ -1,0 +1,18 @@
+{
+ "date": "2026-11-23",
+ "pc": {
+  "os": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.1",
+  "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+  "ram_gb": "32",
+  "gpu": "NVIDIA GeForce RTX 4080 SUPER",
+  "note": "판단·이름 인식은 CPU, 로컬 LLM(Ollama)은 GPU"
+ },
+ "local_llm": {
+  "base_url": "http://127.0.0.1:11434/v1",
+  "model": "gemma4:12b",
+  "reasoning_effort": "none",
+  "timeout_seconds": 120.0,
+  "instruction": "오늘 날짜는 {today}이다. 이 대화는 회사 PC 안에서만 처리되고 외부로 나가지 않는다."
+ }
+}

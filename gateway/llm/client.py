@@ -9,13 +9,14 @@
 """
 import time
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
 import httpx
 
-from gateway.config import LLMConfig, Settings
+from gateway.config import LLMConfig, LocalLLMConfig, Settings
 
-Tier = Literal["cheap", "premium"]
+Tier = Literal["cheap", "premium", "local"]
 
 
 @dataclass
@@ -68,25 +69,62 @@ class LLMClient:
         if max_completion_tokens:
             body["max_completion_tokens"] = max_completion_tokens
 
-        t0 = time.perf_counter()
-        try:
-            r = self._client.post("/chat/completions", json=body)
-        except httpx.HTTPError as e:
-            raise LLMError(f"{model.model}: {type(e).__name__}") from e
-        if r.status_code != 200:
-            raise LLMError(f"{model.model}: HTTP {r.status_code} {_error_code(r)}")
-        try:
-            res = r.json()
-            choice = res["choices"][0]
-            u = res["usage"]
-            usage = LLMUsage(u["prompt_tokens"], u["completion_tokens"],
-                             (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0))
-            return LLMResult(text=choice["message"].get("content") or "",
-                             finish_reason=choice.get("finish_reason", ""),
-                             refusal=choice["message"].get("refusal"), usage=usage, tier=tier,
-                             model=model.model, latency_ms=(time.perf_counter() - t0) * 1000)
-        except (KeyError, IndexError, TypeError, ValueError) as e:
-            raise LLMError(f"{model.model}: 알 수 없는 응답 형식 ({type(e).__name__})") from e
+        return _post(self._client, body, model.model, tier)
+
+
+class LocalLLMClient:
+    """완전 로컬 수준의 로컬 LLM (#136, D34): 밖으로 보낼 수 없는 요청을 이 PC의 Ollama가 **원문으로** 답한다.
+
+    - Ollama의 OpenAI 호환 /v1/chat/completions (docs.ollama.com/api/openai-compatibility, 11/23 확인).
+      키는 "필요하지만 무시"라서 문서 예시대로 'ollama'를 보낸다. **OpenAI 키를 보내지 않는다**
+    - 주소는 이 PC만 (LocalLLMConfig 검사). 원문을 받기 때문이다
+    - 맨 앞에 설정의 지시(instruction)를 붙이고, {today}는 코드가 오늘 날짜로 바꾼다(날짜 계산은 코드, 설계 결정 6번)
+    - 답에 가명 토큰이 없으니 복원하지 않는다
+    """
+
+    def __init__(self, cfg: LocalLLMConfig, transport: httpx.BaseTransport | None = None):
+        self.cfg = cfg
+        self._client = httpx.Client(base_url=cfg.base_url.rstrip("/"), timeout=cfg.timeout_seconds,
+                                    transport=transport, headers={"Authorization": "Bearer ollama"})
+
+    def close(self) -> None:
+        self._client.close()
+
+    def complete(self, messages: list[dict[str, str]], *, max_completion_tokens: int | None = None,
+                 today: date | None = None) -> LLMResult:
+        if self.cfg.instruction:
+            d = today or date.today()
+            text = self.cfg.instruction.replace("{today}", f"{d.year}년 {d.month}월 {d.day}일")
+            messages = [{"role": "system", "content": text}, *messages]
+        body: dict = {"model": self.cfg.model, "messages": messages}
+        if self.cfg.reasoning_effort:
+            body["reasoning_effort"] = self.cfg.reasoning_effort
+        if max_completion_tokens:
+            body["max_tokens"] = max_completion_tokens     # Ollama 문서의 지원 목록은 max_tokens (max_completion_tokens는 없음)
+        return _post(self._client, body, self.cfg.model, "local")
+
+
+def _post(client: httpx.Client, body: dict, model: str, tier: Tier) -> LLMResult:
+    """OpenAI 형식 /chat/completions를 부르고 결과를 LLMResult로. 실패는 LLMError (요청 문장·오류 본문은 넣지 않는다)."""
+    t0 = time.perf_counter()
+    try:
+        r = client.post("/chat/completions", json=body)
+    except httpx.HTTPError as e:
+        raise LLMError(f"{model}: {type(e).__name__}") from e
+    if r.status_code != 200:
+        raise LLMError(f"{model}: HTTP {r.status_code} {_error_code(r)}")
+    try:
+        res = r.json()
+        choice = res["choices"][0]
+        u = res["usage"]
+        usage = LLMUsage(u["prompt_tokens"], u["completion_tokens"],
+                         (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0))
+        return LLMResult(text=choice["message"].get("content") or "",
+                         finish_reason=choice.get("finish_reason", ""),
+                         refusal=choice["message"].get("refusal"), usage=usage, tier=tier,
+                         model=model, latency_ms=(time.perf_counter() - t0) * 1000)
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        raise LLMError(f"{model}: 알 수 없는 응답 형식 ({type(e).__name__})") from e
 
 
 def _error_code(r: httpx.Response) -> str:
