@@ -6,11 +6,14 @@
 - 가명화된 텍스트는 사용자가 그대로 AI에 붙여넣을 수 있다. 복원 대응표는 돌려주지 않는다 (원본은 사용자 파일에 있다)
 - 판단 모델은 쓰지 않는다. 긴 문서는 판단 모델이 읽을 수 있는 길이를 넘는다 (D19, #39)
   이름 인식 모델은 쓴다(D23). 긴 문서도 끝까지 구간으로 나눠 읽는다 (2백만 자 상한에서 1분 안팎, docs/file-scan.md)
+- 글자 뽑기는 별도 프로세스에서 시간·메모리 상한을 걸고 한다(isolate.py, #52). 가명화는 이 프로세스에서 한다
 """
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from gateway.files.extract import extract
+from gateway.files.extract import Segment
+from gateway.files.isolate import extract_isolated
 from gateway.masking.masker import Masker
 
 _KIND = re.compile(r"\[(\D+?)\d+\]")      # 가명화 부품이 만든 토큰 [종류N]에서 종류
@@ -38,8 +41,10 @@ class ScanReport:
         return bool(self.counts or self.unmasked or self.suspected)
 
 
-def scan(filename: str, data: bytes, masker: Masker) -> ScanReport:
-    segments = extract(filename, data)
+def scan(filename: str, data: bytes, masker: Masker,
+         extractor: Callable[[str, bytes], list[Segment]] = extract_isolated) -> ScanReport:
+    """extractor: 글자 뽑기 (기본은 별도 프로세스, #52). 결과는 같은 프로세스에서 뽑은 것과 같다."""
+    segments = extractor(filename, data)
     masked = masker.mask([{"role": "user", "content": s.text} for s in segments])
     findings = []
     for seg, msg in zip(segments, masked.messages):
