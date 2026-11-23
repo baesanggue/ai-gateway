@@ -30,6 +30,8 @@ def baseline_cost(route: Route, usage: LLMUsage | None, prompt_text: str, cfg: L
       반영하지 않는다 → 절감액을 보수적으로 잡는다
     - template: 입력은 글자 수 × 0.786, 출력은 고성능 모델 평균 175토큰으로 추정한다
     - block: 0. 차단은 "절약"이 아니라 "보안" 효과라 절감액에 넣지 않는다
+    - local: 0 (#136). 엄격 수준이면 막혔을 요청을 이 PC에서 답한 것이라 차단과 같이 "보안" 효과로 본다.
+      API 비용은 0이지만 PC의 전기·GPU를 쓰므로, 고성능 가격으로 환산해 절감액을 부풀리지 않는다 (보수적)
     """
     if route == "premium":
         # 실제로 고성능 모델로 보냈다 → 실제 비용 그대로
@@ -45,5 +47,5 @@ def baseline_cost(route: Route, usage: LLMUsage | None, prompt_text: str, cfg: L
         # LLM을 안 불렀으니 토큰을 추정한다. 입력은 글자 수 × 0.786, 출력은 고성능 평균 175토큰
         return request_cost(LLMUsage(round(len(prompt_text) * 0.786), 175), cfg.premium)
 
-    # route == "block": 차단한 요청은 절감액에 넣지 않는다
+    # route == "block" | "local": 막은 요청과 로컬 LLM이 답한 요청은 절감액에 넣지 않는다
     return 0.0

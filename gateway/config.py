@@ -12,6 +12,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, Field, SecretStr, field_validator
@@ -105,12 +106,35 @@ class LLMModelConfig(BaseModel):
     price_per_1m_output: float
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+class LocalLLMConfig(BaseModel):
+    """완전 로컬 수준의 로컬 LLM (#136, D34). Ollama의 OpenAI 호환 /v1/chat/completions
+    (docs.ollama.com/api/openai-compatibility, 11/23 확인). 원문을 받으므로 이 PC 주소만 받는다."""
+    base_url: str = "http://127.0.0.1:11434/v1"
+    model: str = "gemma4:12b"
+    # 생각 모드: 11/23 시험에서 기본(켬)은 600토큰을 생각에만 쓰고 답이 잘렸다. none(끔)은 1.4초에 맞게 답했다
+    reasoning_effort: Literal["none", "low", "medium", "high", "max"] | None = "none"
+    timeout_seconds: float = 120
+    instruction: str | None = None   # 맨 앞에 붙이는 system 지시. {today}는 코드가 오늘 날짜로 바꾼다(설계 결정 6번)
+
+    @field_validator("base_url")
+    @classmethod
+    def _loopback(cls, v: str) -> str:
+        host = urlsplit(v).hostname
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError(f"llm.local.base_url은 이 PC 주소(127.0.0.1·localhost)만 됩니다. 로컬 LLM은 원문을 받습니다: {v}")
+        return v
+
+
 class LLMConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     timeout_seconds: float = 60
     placeholder_instruction: str | None = None   # 가명화된 요청에 붙이는 지시 (없으면 붙이지 않음)
     cheap: LLMModelConfig
     premium: LLMModelConfig
+    local: LocalLLMConfig = LocalLLMConfig()     # 완전 로컬 수준에서만 쓴다 (#136)
 
 
 class CustomPattern(BaseModel):

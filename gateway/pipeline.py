@@ -6,6 +6,8 @@
 - 사전에 없는 이름은 가명화 부품 안의 이름 인식 모델이 가린다(D23). 그 모델이 본 주소가 가린 뒤에도 남았으면 엄격 수준은 막는다
 - FAQ와 클라우드 판단은 마지막 사용자 메시지로 한다. 로컬 판단(기밀)은 밖으로 나갈 메시지 전체로 한다.
   LLM에는 대화 전체가 가므로 그 전부를 봐야 한다
+- 완전 로컬 수준(#136, D34): 밖으로 보낼 수 없어서 막던 요청(원본 값 필요·기밀·가리지 못한 개인정보)은 이 PC의
+  로컬 LLM(Ollama)이 **원문으로** 답한다. 복원할 것이 없다. 로컬 LLM이 안 되면 막는다(원문을 클라우드로 보내지 않는다)
 - 모든 경로가 요청 로그를 남긴다. 로그 저장이 실패해도 응답은 돌려준다. 로그에는 가명화된 문장만 들어간다 (#11)
 """
 import hashlib
@@ -19,12 +21,13 @@ from pathlib import Path
 from gateway.config import ROOT, Settings
 from gateway.decision.questions import QUESTIONS
 from gateway.decision.service import DecisionService, JudgeResult
-from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage
+from gateway.llm.client import LLMClient, LLMError, LLMResult, LLMUsage, LocalLLMClient
 from gateway.llm.cost import baseline_cost, request_cost
 from gateway.masking.masker import Masker, RuleMasker, UnavailableMasker
 from gateway.masking.patterns import normalize_text
-from gateway.routing.policy import (Decision, apply_history_risk, decide_after_cloud, decide_after_local,
-                                    decide_suspected, decide_unmasked, decide_without_masking, match_faq)
+from gateway.routing.policy import (DEFAULT_BLOCK_MESSAGE, Decision, apply_history_risk, decide_after_cloud,
+                                    decide_after_local, decide_suspected, decide_unmasked, decide_without_masking,
+                                    match_faq, route_locally)
 from gateway.storage.log import RequestLog, RequestRecord, judge_summary
 
 logger = logging.getLogger(__name__)
@@ -36,10 +39,10 @@ HISTORY_SAFE_MARGIN = 0.2     # 위험 확률이 기준값의 20% 이하여야 "
 @dataclass
 class GatewayReply:
     request_id: str
-    route: str                    # template | cheap | premium | block
+    route: str                    # template | cheap | premium | local | block
     text: str                     # 사용자에게 돌려줄 답 (복원된 LLM 답변, 템플릿 답변, 차단 안내문)
     finish_reason: str            # stop | content_filter(차단) | LLM이 준 값
-    model: str | None = None      # 실제로 부른 LLM 모델. 템플릿·차단이면 None
+    model: str | None = None      # 실제로 부른 LLM 모델(로컬 LLM 포함). 템플릿·차단이면 None
     usage: LLMUsage | None = None
     refusal: str | None = None    # LLM이 답변을 거부한 문구
     error: str | None = None      # LLM 오류 (API는 502로 돌려준다)
@@ -57,10 +60,12 @@ class _Trace:
 
 class Gateway:
     def __init__(self, settings: Settings, decision: DecisionService, llm: LLMClient, log: RequestLog | None,
-                 masker: Masker | None = None):
+                 masker: Masker | None = None, local_llm: LocalLLMClient | None = None):
         self.settings = settings
         self.decision = decision
         self.llm = llm
+        # 완전 로컬 수준에서만 부른다 (#136). 만들 때는 연결하지 않는다
+        self.local_llm = local_llm or LocalLLMClient(settings.config.llm.local)
         self.log = log
         self.masker = masker or UnavailableMasker()
         self._history_cache: OrderedDict[str, tuple[float, JudgeResult]] = OrderedDict()   # 해시 → (만료 시각, 판단)
@@ -74,11 +79,13 @@ class Gateway:
         return cls(settings, DecisionService.from_settings(settings, transport),
                    LLMClient.from_settings(settings, transport),
                    log if log is not None else RequestLog.from_config(settings.config.storage),
-                   masker or RuleMasker.from_config(settings.config.masking))
+                   masker or RuleMasker.from_config(settings.config.masking),
+                   LocalLLMClient(settings.config.llm.local, transport))
 
     def close(self) -> None:
         self.decision.close()
         self.llm.close()
+        self.local_llm.close()
 
     def handle(self, messages: list[dict[str, str]], max_completion_tokens: int | None = None) -> GatewayReply:
         t0 = time.perf_counter()
@@ -121,6 +128,11 @@ class Gateway:
                 trace.judges.append(hist)
                 decision = apply_history_risk(decision, hist, cfg)
 
+        # ④' 완전 로컬 수준: 밖으로 보낼 수 없어서 막던 요청은 이 PC의 로컬 LLM이 원문으로 답한다 (#136, D34)
+        decision = route_locally(decision, cfg.security_level)
+        if decision.route == "local":
+            return self._answer_locally(trace, decision, t0, messages, max_completion_tokens)
+
         if decision.route == "template":
             return self._finish(trace, decision, t0, decision.message, "stop")
         if decision.route == "block":
@@ -135,6 +147,19 @@ class Gateway:
         restored = self.masker.restore(result.text, masked.mapping)
         trace.unrestored = restored.unrestored
         return self._finish(trace, decision, t0, restored.text, result.finish_reason, result=result)
+
+    def _answer_locally(self, trace: "_Trace", decision: Decision, t0: float, messages: list[dict[str, str]],
+                        max_completion_tokens: int | None) -> GatewayReply:
+        """로컬 LLM(Ollama)에 **원문** 대화를 보낸다. 이 PC 안이라 가명화·복원이 필요 없다.
+        로컬 LLM이 꺼져 있거나 실패하면 막고 안내한다. 원문을 클라우드로 보내는 대체 경로는 두지 않는다 (#136)."""
+        try:
+            result = self.local_llm.complete(messages, max_completion_tokens=max_completion_tokens)
+        except LLMError as e:
+            msgs = self.settings.config.routing.block_messages
+            block = Decision("block", ["local_llm_error", *decision.reasons],
+                             msgs.get("local_llm_error", DEFAULT_BLOCK_MESSAGE))
+            return self._finish(trace, block, t0, block.message, "content_filter", notice_error=str(e))
+        return self._finish(trace, decision, t0, result.text, result.finish_reason, result=result)
 
     def _is_trusted_prompt(self, message: dict[str, str]) -> bool:
         """운영자가 등록한 지시문인가. 역할이 system·developer이고, 가리기 전 원문이 등록한 파일과 같아야 한다."""
@@ -173,10 +198,14 @@ class Gateway:
         return result
 
     def _finish(self, trace: _Trace, decision: Decision, t0: float, text: str | None, finish_reason: str,
-                result: LLMResult | None = None, error: str | None = None) -> GatewayReply:
+                result: LLMResult | None = None, error: str | None = None,
+                notice_error: str | None = None) -> GatewayReply:
+        """error: LLM 오류(API가 502로 돌려준다). notice_error: 로그에만 남기는 오류(로컬 LLM 실패 → 막고 안내, #136)."""
         llm_cfg = self.settings.config.llm
         usage = result.usage if result else None
-        cost = request_cost(usage, llm_cfg.cheap if result.tier == "cheap" else llm_cfg.premium) if result else 0.0
+        # 로컬 LLM은 API 비용이 없다 (#136)
+        cost = (request_cost(usage, llm_cfg.cheap if result.tier == "cheap" else llm_cfg.premium)
+                if result and result.tier != "local" else 0.0)
         # LLM이 실패하면 쓴 토큰도 아낀 비용도 없다. 템플릿·차단은 cost.py 규칙대로 (D18)
         baseline = 0.0 if error else baseline_cost(decision.route, usage, trace.request, llm_cfg)
         record = RequestRecord(
@@ -190,7 +219,7 @@ class Gateway:
             cost_usd=cost, baseline_cost_usd=baseline,
             decision_input_tokens=sum(j.input_tokens for j in trace.judges if j.engine.startswith("cloud")),
             decision_latency_ms=round(sum(j.latency_ms for j in trace.judges), 1),
-            total_latency_ms=round((time.perf_counter() - t0) * 1000, 1), llm_error=error,
+            total_latency_ms=round((time.perf_counter() - t0) * 1000, 1), llm_error=error or notice_error,
             unrestored_tokens=trace.unrestored)
         self._save(record)
         return GatewayReply(record.id, decision.route, text or "", finish_reason,

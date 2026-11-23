@@ -70,7 +70,8 @@ class FakeUpstream:
     바꾸고 싶은 판단만 local={...}, cloud={...}로 준다. *_error는 그 상위 서버가 실패하게 한다."""
 
     def __init__(self, local=None, cloud=None, history=None, reply="네, 안내해 드리겠습니다.", local_error=False,
-                 cloud_error=False, history_error=False, chat_status=200):
+                 cloud_error=False, history_error=False, chat_status=200, local_reply="이 PC에서 답했습니다.",
+                 local_llm_error=False):
         self.local = {"has_pii": noul(0.01), "is_confidential": noul(0.01)} | (local or {})
         self.cloud = {"needs_raw_value": predicate("needs_raw_value", 0.0), "is_risky": predicate("is_risky", 0.0),
                       "difficulty": difficulty(0.01),
@@ -80,6 +81,8 @@ class FakeUpstream:
         self.reply = reply
         self.local_error, self.cloud_error, self.chat_status = local_error, cloud_error, chat_status
         self.history_error = history_error
+        # 완전 로컬 수준의 로컬 LLM (Ollama, 127.0.0.1:11434, #136). local_llm_error면 꺼져 있는 것처럼 연결을 거부한다
+        self.local_reply, self.local_llm_error = local_reply, local_llm_error
         self.requests: list[httpx.Request] = []
 
     def bodies(self, path):
@@ -92,6 +95,11 @@ class FakeUpstream:
 
     def raw_bytes(self):
         return b"".join(r.content for r in self.requests if r.url.host == "api.openai.com")
+
+    @property
+    def local_llm_requests(self) -> list[httpx.Request]:
+        """이 PC의 로컬 LLM(Ollama)으로 간 요청 (#136)."""
+        return [r for r in self.requests if r.url.host == "127.0.0.1" and r.url.port == 11434]
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -110,6 +118,10 @@ class FakeUpstream:
             answers = self.history if names == ["is_risky"] else self.cloud
             return httpx.Response(200, json={"model": "gpt-6-luna", "usage": {"input_tokens": 150},
                                              "answers": [answers[n] for n in names]})
+        if request.url.path == "/v1/chat/completions" and request.url.port == 11434:
+            if self.local_llm_error:
+                raise httpx.ConnectError("connection refused", request=request)
+            return httpx.Response(200, json=completion(self.local_reply, prompt_tokens=90, completion_tokens=60))
         if request.url.path == "/v1/chat/completions":
             if self.chat_status != 200:
                 return httpx.Response(self.chat_status, json={"error": {"message": "upstream", "code": "server_error"}})
