@@ -40,7 +40,7 @@ powershell -ExecutionPolicy Bypass -File scripts\stop.ps1      # 끄기
 
 - `install.ps1`은 uv·파이썬 패키지·로컬 판단 서버(Ollaya, CPU용)·판단 모델·이름 인식 모델을 받는다. 모델은 **측정한 버전으로 고정**해서 받고(digest·SHA-256), 다르면 멈춘다. API 키는 입력할 때 화면에 보이지 않고 `.env`(커밋 안 됨)에만 저장된다. 다시 실행해도 된다.
 - 처음에는 **시연용 가상 사전**이 들어간다(실제 고객명은 가려지지 않는다). 운영 전에 화면의 [설정 > 사용자 사전]에서 회사의 고객명·직원명으로 바꾼다.
-- 단계별 설명: [docs/install.md](docs/install.md). macOS·Linux는 준비 중(#85).
+- 단계별 설명: [docs/install.md](docs/install.md). **Windows 전용이다.** macOS·Linux 설치 스크립트는 만들지 않았다: 이 PC에서 시험할 수 없어, 확인하지 못한 스크립트를 내지 않기로 했다(D32, #85).
 
 ## 3. 기존 서비스에 붙이기
 

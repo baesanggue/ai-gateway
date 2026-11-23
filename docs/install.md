@@ -1,6 +1,6 @@
 # 설치와 실행 (Windows, #77)
 
-받은 폴더에서 스크립트 셋으로 설치·실행·끄기를 한다. macOS·Linux는 #85(M6).
+받은 폴더에서 스크립트 셋으로 설치·실행·끄기를 한다. **Windows 10/11 전용**이다. macOS·Linux 설치 스크립트는 시험할 PC가 없어 만들지 않았다(D32, #85).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # 설치 (한 번, 다시 실행해도 된다)
