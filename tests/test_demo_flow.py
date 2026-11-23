@@ -93,3 +93,27 @@ def test_answer_html_shows_bold_without_running_html():
     assert answer_html("**<script>x</script>**") == "<b>&lt;script&gt;x&lt;/script&gt;</b>"
     assert answer_html("2 ** 3 = 8, a**b") == "2 ** 3 = 8, a**b"          # 짝이 없거나 공백으로 감싼 별표는 그대로
     assert answer_html("**줄이\n넘어가면**") == "**줄이\n넘어가면**"       # 굵게는 한 줄 안에서만
+
+
+def test_raw_value_request_answered_by_the_local_llm_shows_the_local_route():
+    """완전 로컬 수준 (#136): 원본 값 필요 → 이 PC의 로컬 LLM이 원문으로 답했다. 밖으로는 가명화된 판단 요청만."""
+    cloud = judge("cloud", needs_raw_value=noul(0.95, True), is_risky=noul(0.0, False))
+    r = row(route="local", reasons=["needs_raw"], judgments={"local": LOCAL_OK, "cloud": cloud},
+            pii_counts={"주민등록번호": 1}, text_masked="이 주민번호 [주민등록번호1]로 고객 나이 계산해줘",
+            model="gemma4:12b", cost_usd=0.0, baseline_cost_usd=0.0)
+    steps = build_steps(r, TH)
+    assert [s.status for s in steps] == ["done", "done", "done", "done", "skipped"]
+    assert "로컬 LLM" in steps[2].summary
+    assert "gemma4:12b" in steps[3].summary and "원문" in steps[3].summary
+    assert "되돌릴 것이 없습니다" in steps[4].summary
+    assert outbound_text(r) == "이 주민번호 [주민등록번호1]로 고객 나이 계산해줘"     # 판단 요청만 나갔다
+
+
+def test_confidential_request_answered_locally_never_reaches_the_cloud_step():
+    local = judge("local", is_confidential=noul(0.9, True))
+    r = row(route="local", reasons=["confidential"], judgments={"local": local}, model="gemma4:12b",
+            cost_usd=0.0, baseline_cost_usd=0.0)
+    steps = build_steps(r, TH)
+    assert [s.status for s in steps] == ["done", "done", "skipped", "done", "skipped"]
+    assert "로컬 LLM" in steps[1].summary and "밖으로 보내지 않았습니다" in steps[2].summary
+    assert outbound_text(r) is None

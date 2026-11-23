@@ -15,7 +15,8 @@ from admin.ui import LEVEL_KO, page_header, settings, steps_view
 from gateway.storage.log import RequestLog
 
 LIMIT = 200
-FILTERS = {"전체": None, "템플릿": "template", "저렴한 모델": "cheap", "고성능 모델": "premium", "막음": "block"}
+FILTERS = {"전체": None, "템플릿": "template", "저렴한 모델": "cheap", "고성능 모델": "premium", "로컬 LLM": "local",
+           "막음": "block"}
 
 
 def _time(iso: str, fmt: str) -> str:

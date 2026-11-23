@@ -6,6 +6,7 @@
 """
 from pathlib import Path
 
+import httpx
 import streamlit as st
 import yaml
 
@@ -18,8 +19,24 @@ LEVEL_HELP = {
     "basic": "개인정보를 가명으로 바꿔 외부 AI에 보내고, 답변을 이 PC에서 원래 값으로 되돌립니다. "
              "개인정보의 실제 값이 있어야 하는 요청은 막습니다.",
     "strict": "기본에 더해, 기밀로 보이는 요청과 가린 뒤에도 주소가 남은 요청을 외부로 보내기 전에 막습니다.",
-    "local": "민감한 요청을 이 PC의 AI가 처리하는 수준입니다. 로컬 AI 연결은 아직 준비 중이라 지금은 엄격과 같이 동작합니다.",
+    "local": "엄격과 같이 검사하고, 밖으로 보낼 수 없어서 막던 요청(개인정보의 실제 값이 필요한 요청, 기밀, 가리지 못한 "
+             "개인정보)은 이 PC의 로컬 AI(Ollama)가 원문으로 답합니다. 위험한 요청은 그대로 막습니다. Ollama가 켜져 있어야 합니다(#136).",
 }
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def local_llm_status(base_url: str, model: str) -> tuple[bool, str]:
+    """완전 로컬의 로컬 AI(Ollama)가 켜져 있고 모델이 있는지 (#136). Ollama 목록 API(GET /api/tags, models[].name)로 본다."""
+    root = base_url.rstrip("/").removesuffix("/v1")
+    try:
+        r = httpx.get(f"{root}/api/tags", timeout=2)
+        names = {m.get("name") for m in r.json().get("models", [])}
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return False, (f"로컬 AI(Ollama, {root})에 연결하지 못했습니다. Ollama를 켜야 동작합니다. "
+                       "꺼져 있으면 해당 요청은 외부로 보내지 않고 막습니다.")
+    if model not in names and f"{model}:latest" not in names:
+        return False, f"Ollama는 켜져 있지만 모델 {model}이 없습니다. 받는 명령: ollama pull {model}"
+    return True, f"로컬 AI 준비됨: Ollama 연결, 모델 {model}"
 
 
 def _finish(result: store.Result) -> None:
@@ -41,6 +58,9 @@ def _level_preset(s) -> None:
         level = st.radio("보안 수준", store.LEVELS, index=store.LEVELS.index(s.config.security_level),
                          format_func=lambda v: LEVEL_KO[v])
         st.caption(LEVEL_HELP[level])
+        if level == "local":
+            ok, message = local_llm_status(s.config.llm.local.base_url, s.config.llm.local.model)
+            (st.success if ok else st.warning)(message)
     with right:
         names = store.presets()
         current = s.config.preset if s.config.preset in names else names[0]
@@ -112,10 +132,11 @@ def _prompt(s) -> None:
 
 def _models(s) -> None:
     c = s.config
-    st.table({"역할": ["로컬 판단 (기밀)", "이름 인식", "클라우드 판단", "저렴한 모델", "고성능 모델"],
+    st.table({"역할": ["로컬 판단 (기밀)", "이름 인식", "클라우드 판단", "저렴한 모델", "고성능 모델", "로컬 LLM (완전 로컬만)"],
               "모델": [c.decision.model, Path(c.masking.ner.model_dir).name, c.decision.cloud.model,
-                       c.llm.cheap.model, c.llm.premium.model],
-              "어디서": ["이 PC (Ollaya, CPU)", "이 PC (CPU)", "OpenAI (가명화된 문장만)", "OpenAI", "OpenAI"]},
+                       c.llm.cheap.model, c.llm.premium.model, c.llm.local.model],
+              "어디서": ["이 PC (Ollaya, CPU)", "이 PC (CPU)", "OpenAI (가명화된 문장만)", "OpenAI", "OpenAI",
+                       "이 PC (Ollama, 원문)"]},
              hide_index=True)
     t = c.decision.thresholds
     st.table({"판단": ["기밀", "원본 값 필요", "위험", "복잡 (고성능으로)"],

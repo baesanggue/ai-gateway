@@ -131,7 +131,7 @@ def _connection(s, base: str) -> str:
                       "서비스가 보낸 키는 밖으로 넘기지 않고 기록하지도 않습니다"),
         ("모델", "아무 이름이나 됩니다. 요청마다 정해 둔 답 · 저렴한 모델"
                  f"(<code>{html.escape(llm.cheap.model)}</code>) · 고성능 모델(<code>{html.escape(llm.premium.model)}</code>) · "
-                 "막음 중에서 가림게이트가 고릅니다"),
+                 "막음 중에서 가림게이트가 고릅니다(완전 로컬 수준이면 이 PC의 로컬 LLM도)"),
         ("보낼 수 있는 것", "텍스트 메시지(system·user·assistant). <code>stream=true</code>도 됩니다(#84): 답을 다 만들고 "
                             "이름·번호를 되돌린 뒤 조각으로 보내므로, 첫 글자가 오기까지 시간은 같습니다"),
     ]

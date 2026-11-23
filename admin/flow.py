@@ -21,14 +21,14 @@ def answer_html(text: str) -> str:
     LLM 답은 마크다운으로 오는데 글자 그대로 두면 시연에서 "**제목**"이 보인다 (#80 리허설)."""
     return BOLD.sub(r"<b>\1</b>", html.escape(text))
 
-ROUTE_KO = {"template": "템플릿 답변", "cheap": "저렴한 모델", "premium": "고성능 모델", "block": "막음"}
+ROUTE_KO = {"template": "템플릿 답변", "cheap": "저렴한 모델", "premium": "고성능 모델", "local": "로컬 LLM", "block": "막음"}
 REASON_KO = {
     "faq": "등록된 FAQ", "simple": "단순한 요청", "complex": "복잡한 요청", "faq_unregistered": "FAQ지만 답이 등록되지 않음",
     "routing_refused": "난이도 판단 거부 → 안전하게 고성능", "low_confidence": "판단이 애매함",
     "risky": "위험한 요청", "needs_raw": "개인정보의 실제 값이 필요", "refused": "안전한지 확인하지 못함",
     "off_topic": "업무와 무관", "confidential": "사내 기밀", "pii_residual": "가리지 못한 주소",
     "pii_unmasked": "가리지 못한 표기", "masking_unavailable": "가명화 기능 없음", "local_error": "보안 검사를 마치지 못함",
-    "cloud_error": "요청 분석을 마치지 못함",
+    "cloud_error": "요청 분석을 마치지 못함", "local_llm_error": "이 PC의 로컬 LLM이 응답하지 않음",
 }
 QUESTION_KO = {"is_confidential": "기밀", "needs_raw_value": "원본 값 필요", "is_risky": "위험", "has_pii": "개인정보",
                "difficulty": "난이도", "intent": "의도"}
@@ -98,11 +98,15 @@ def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = No
     judgments = row.get("judgments") or {}
     pii = row.get("pii_counts") or {}
     blocked_at_mask = route == "block" and reasons and reasons[0] in BEFORE_JUDGE_BLOCKS and "local" not in judgments
+    # 완전 로컬 수준(#136): 밖으로 보낼 수 없어서 막던 요청을 이 PC의 로컬 LLM이 원문으로 답했다
+    local_at_mask = route == "local" and reasons and reasons[0] in BEFORE_JUDGE_BLOCKS and "local" not in judgments
 
     # ① 가리기
     mask_summary = f"개인정보 {sum(pii.values())}개를 가렸습니다 ({_counts(pii)})" if pii else "가릴 개인정보가 없습니다"
     if blocked_at_mask:
         mask_summary = f"{REASON_KO.get(reasons[0], reasons[0])} → 밖으로 보내지 않았습니다"
+    elif local_at_mask:
+        mask_summary = f"{REASON_KO.get(reasons[0], reasons[0])} → 밖으로 보내지 않고 이 PC에서 처리했습니다"
     mask_details = [("밖으로 나갈 문장", row.get("text_masked") or "(가리지 못한 값이 있어 로그에 남기지 않음)")]
     steps = [Step("mask", "가리기", "blocked" if blocked_at_mask else "done", mask_summary, mask_details)]
 
@@ -114,10 +118,13 @@ def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = No
     else:
         conf = (local.get("judgments") or {}).get("is_confidential")
         blocked = route == "block" and bool(set(reasons) & LOCAL_BLOCKS) and "cloud" not in judgments
+        kept_in = route == "local" and "confidential" in reasons and "cloud" not in judgments
         if local.get("error"):
             summary = "판단하지 못했습니다" + (" → 막았습니다 (엄격 수준)" if blocked else " → 기본 수준이라 진행합니다")
         elif blocked:
             summary = f"{REASON_KO.get(reasons[0], reasons[0])}로 보여 밖으로 보내지 않았습니다"
+        elif kept_in:
+            summary = "사내 기밀로 보여 밖으로 보내지 않고 이 PC의 로컬 LLM으로 보냈습니다"
         else:
             summary = "기밀이 아닙니다" if conf and not conf.get("value") else "기밀로 보입니다 (기본 수준이라 진행)"
         steps.append(Step("local", "로컬 판단", "blocked" if blocked else "done", summary,
@@ -127,13 +134,15 @@ def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = No
     cloud = judgments.get("cloud")
     if cloud is None:
         steps.append(Step("cloud", "클라우드 판단", "skipped",
-                          "밖으로 보내지 않았습니다" if route == "block" or route == "template" else "부르지 않았습니다"))
+                          "밖으로 보내지 않았습니다" if route in ("block", "template", "local") else "부르지 않았습니다"))
     else:
         blocked = route == "block"
         if cloud.get("error"):
             summary = "판단하지 못했습니다"
         elif blocked:
             summary = " · ".join(REASON_KO.get(r, r) for r in reasons) + " → 막았습니다"
+        elif route == "local":
+            summary = " · ".join(REASON_KO.get(r, r) for r in reasons) + " → 이 PC의 로컬 LLM으로 보냈습니다"
         else:
             j = cloud.get("judgments") or {}
             parts = []
@@ -151,6 +160,8 @@ def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = No
         route_summary = f"막고 안내했습니다: {REASON_KO.get(reasons[0], reasons[0]) if reasons else ''}"
     elif route == "template":
         route_summary = "정해 둔 답으로 바로 답했습니다 · 비용 0원"
+    elif route == "local":
+        route_summary = f"이 PC의 로컬 LLM({row.get('model') or ''})이 원문으로 답했습니다 · API 비용 0원"
     else:
         route_summary = f"{ROUTE_KO.get(route, route)}({row.get('model') or ''})으로 보냈습니다"
     route_details = [("이유", " · ".join(REASON_KO.get(r, r) for r in reasons) or "-"),
@@ -168,6 +179,8 @@ def build_steps(row: dict, thresholds: dict[str, float], rate: float | None = No
         if unrestored:
             summary += f" (되돌리지 못한 토큰 {unrestored}개)"
         steps.append(Step("restore", "복원", "done", summary))
+    elif route == "local":
+        steps.append(Step("restore", "복원", "skipped", "원문으로 답해 되돌릴 것이 없습니다"))
     else:
         steps.append(Step("restore", "복원", "skipped", "LLM을 부르지 않았습니다"))
     return steps
