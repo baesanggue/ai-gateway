@@ -44,19 +44,26 @@ class Segment:
 
 
 class FileError(ValueError):
-    """검사할 수 없는 파일. code: unsupported | too_large | unreadable | encrypted | zip_bomb | no_text | too_long"""
+    """검사할 수 없는 파일. code: unsupported | too_large | unreadable | encrypted | zip_bomb | no_text | too_long
+    | isolation_failed (검사 프로세스에 메모리 상한을 걸지 못함, #52)"""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
 
 
-def extract(filename: str, data: bytes) -> list[Segment]:
+def check_file(filename: str, data: bytes) -> str:
+    """형식(확장자)과 크기만 본다. 파일을 열지 않으므로 게이트웨이 본체에서 먼저 확인해도 된다 (#52). 확장자를 돌려준다."""
     ext = Path(filename).suffix.lower()
     if ext not in SUPPORTED:
         raise FileError("unsupported", f"지원하지 않는 형식입니다. 지원 형식: {', '.join(SUPPORTED)}")
     if len(data) > MAX_BYTES:
         raise FileError("too_large", f"파일이 너무 큽니다 ({MAX_BYTES // 1024 // 1024}MB까지)")
+    return ext
+
+
+def extract(filename: str, data: bytes) -> list[Segment]:
+    ext = check_file(filename, data)
     if ext == ".pdf":
         segments = _pdf(data)
     elif ext in (".docx", ".xlsx"):
