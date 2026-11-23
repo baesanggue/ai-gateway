@@ -25,6 +25,17 @@ powershell -ExecutionPolicy Bypass -File scripts\stop.ps1      # 끄기
 
 - 시연용 챗봇 지시문 등록(#73)은 설치에서 하지 않는다. 화면의 [설정 > 등록 지시문]에서 한다(D26).
 
+## 완전 로컬 쓰기 (옵션, #136)
+
+보안 수준 '완전 로컬'을 고를 때만 필요하다. 밖으로 보낼 수 없어서 막던 요청을 이 PC의 Ollama가 원문으로 답한다(D34). 기본 설치(`install.ps1`)는 받지 않는다(가벼움 원칙, 설계 결정 3번).
+
+1. Ollama를 설치하고 켠다(ollama.com 공식 설치 파일). 기본 주소 `127.0.0.1:11434`
+2. 모델을 받는다: `ollama pull gemma4:12b` (약 8GB, Google Gemma 4, Apache-2.0). GPU가 있으면 빠르고, 없으면 CPU로 돌아 느리다
+3. 화면 [설정 > 보안 수준]에서 '완전 로컬'을 고른다. "로컬 AI 준비됨"이 보이면 저장한다
+
+- 모델·주소·생각 모드는 `config.yaml`의 `llm.local`이다. 주소는 이 PC(127.0.0.1·localhost)만 받는다(원문을 받기 때문). Ollama가 꺼져 있으면 해당 요청은 밖으로 보내지 않고 막는다(`local_llm_error`)
+- `start.ps1`은 Ollama를 켜지 않는다. Ollama 앱을 켜 두면 된다
+
 ## start.ps1 / stop.ps1
 
 - Ollaya(11435) → 게이트웨이(8000) → 화면(8501)을 창 없이 켜고, 프로그램 창(`open-app.ps1`, 1200×800)을 연다. `-NoWindow`면 창을 열지 않는다
